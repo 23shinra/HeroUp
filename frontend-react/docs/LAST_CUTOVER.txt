@@ -1,0 +1,31 @@
+React SPA production cutover
+Timestamp: 20260724-112509 (UTC+5 server local)
+Branch: react
+Backup: /var/www/train.esl.kz/_vanilla_backup_20260724-112509
+
+ROLLBACK (restore vanilla static):
+  BACKUP=/var/www/train.esl.kz/_vanilla_backup_20260724-112509
+  ROOT=/var/www/train.esl.kz
+  cp -a "$BACKUP"/index.html "$BACKUP"/sw.js "$BACKUP"/manifest.webmanifest "$ROOT"/ 2>/dev/null || true
+  rm -rf "$ROOT/js" "$ROOT/css" && cp -a "$BACKUP/js" "$BACKUP/css" "$ROOT"/
+  cp -a "$BACKUP/retired-html/"* "$ROOT"/ 2>/dev/null || true
+  # Remove React-built assets from root if needed; review dist vs backup manually.
+
+Build: VITE_PREVIEW_PWA=1 npm run build in frontend-react, then re-run deploy rsync steps.
+
+Hotfix deploy: saveState return + setS crash on skill toggle | 2026-07-24T11:30:17Z UTC
+skills HUD drawer layout fix | 2026-07-24T11:32:56Z UTC
+XP tip+modal on level ring | 2026-07-24T11:35:07Z UTC
+profile train calendar restored | 2026-07-24T11:38:17+00:00
+map fullscreen + remove jump btn | 2026-07-24 11:42:17 +0000
+skills hero+hud rail layout | 2026-07-24T11:44:22+00:00
+modal portal + skills badge XP | 2026-07-24T11:48:00Z
+battle history detail | 2026-07-24 17:01:00 +0500
+full battle flow restore | 2026-07-24 17:09:38 +0500
+remove streak system | 2026-07-24 17:13:13 +0500
+battle frame animations | 2026-07-27T08:12:54Z
+battle sheet facing fix | 2026-07-27T09:34:47Z
+rebrand LevelUp | 2026-07-27T10:10:04Z
+audit fixes batch 1 | 2026-07-27T10:36:09Z
+2026-07-27T11:16:17Z polish all | deploy
+deployed 2026-07-27T11:21:50Z
