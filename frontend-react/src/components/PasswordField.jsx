@@ -8,6 +8,7 @@ export function PasswordField({
   placeholder = "Пароль",
   autoComplete = "current-password",
   className = "input",
+  disabled = false,
 }) {
   const [visible, setVisible] = useState(false);
 
@@ -21,12 +22,15 @@ export function PasswordField({
         placeholder={placeholder}
         value={value}
         onChange={onChange}
+        disabled={disabled}
       />
       <button
         type="button"
         className={`password-toggle${visible ? " is-on" : ""}`}
         aria-label={visible ? "Скрыть пароль" : "Показать пароль"}
         onClick={() => setVisible((v) => !v)}
+        disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
       >
         <Icon name={visible ? "eyeOff" : "eye"} size={20} />
       </button>

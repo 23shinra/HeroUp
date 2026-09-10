@@ -74,17 +74,18 @@ function pushupDownPose() {
 }
 
 describe("exercise rewards", () => {
-  it("awards 2 XP per rep within daily cap", () => {
+  it("awards 1 token per rep within daily cap", () => {
     const r = computeExerciseXp(10, { usedXpToday: 0 });
     expect(r.acceptedReps).toBe(10);
-    expect(r.xp).toBe(20);
+    expect(r.xp).toBe(10);
+    expect(r.tokens).toBe(10);
     expect(r.xpPerRep).toBe(EXERCISE_XP_PER_REP);
   });
 
-  it("caps by remaining daily XP", () => {
-    const r = computeExerciseXp(40, { usedXpToday: 50 });
+  it("caps by remaining daily tokens", () => {
+    const r = computeExerciseXp(40, { usedXpToday: 25 });
     expect(r.acceptedReps).toBe(5);
-    expect(r.xp).toBe(10);
+    expect(r.xp).toBe(5);
     expect(r.capped).toBe(true);
     expect(r.remainingAfter).toBe(0);
   });

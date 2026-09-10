@@ -22,52 +22,50 @@ export function pickDiscipline() {
 }
 
 export const STAGE_ENEMIES = [
-  { name: "Хулиган со двора", avatar: "skull" },
-  { name: "Пацан с района", avatar: "user" },
-  { name: "Школьный задира", avatar: "flame" },
-  { name: "Уличный боец", avatar: "swords" },
-  { name: "Боксёр из подвала", avatar: "boxing" },
-  { name: "Тренировочный партнёр", avatar: "dumbbell" },
-  { name: "Любитель клуба", avatar: "boxer" },
-  { name: "Районный чемпион", avatar: "medal" },
-  { name: "Городской чемпион", avatar: "trophy" },
-  { name: "Кандидат в мастера", avatar: "badge" },
-  { name: "Мастер спорта", avatar: "star" },
-  { name: "Профи-дебютант", avatar: "bolt" },
-  { name: "Контендер", avatar: "target" },
-  { name: "Чемпион Казахстана", avatar: "flag" },
-  { name: "Чемпион Азии", avatar: "crown" },
-  { name: "Геннадий Головкин", avatar: "boxing" },
-  { name: "Александр Карелин", avatar: "wrestling" },
-  { name: "Мохаммед Али", avatar: "sparkles" },
-  { name: "Майк Тайсон", avatar: "flame" },
-  { name: "Легенда всех времён", avatar: "crown" },
+  { name: "Хулиган со двора", avatar: "skull", sprite: "./assets/stages/stage-01-hooligan.webp?v=1" },
+  { name: "Пацан с района", avatar: "user", sprite: "./assets/stages/stage-02-punk.webp?v=1" },
+  { name: "Школьный задира", avatar: "flame", sprite: "./assets/stages/stage-03-bully.webp?v=1" },
+  { name: "Уличный боец", avatar: "swords", sprite: "./assets/stages/stage-04-street.webp?v=1" },
+  { name: "Боксёр из подвала", avatar: "boxing", sprite: "./assets/stages/stage-05-basement-boxer.webp?v=1" },
+  { name: "Тренировочный партнёр", avatar: "dumbbell", sprite: "./assets/stages/stage-06-partner.webp?v=1" },
+  { name: "Любитель клуба", avatar: "boxer", sprite: "./assets/stages/stage-07-amateur.webp?v=1" },
+  { name: "Районный чемпион", avatar: "medal", sprite: "./assets/stages/stage-08-district-champ.webp?v=1" },
+  { name: "Городской чемпион", avatar: "trophy", sprite: "./assets/stages/stage-09-city-champ.webp?v=1" },
+  { name: "Кандидат в мастера", avatar: "badge", sprite: "./assets/stages/stage-10-candidate.webp?v=1" },
+  { name: "Мастер спорта", avatar: "star", sprite: "./assets/stages/stage-11-master.webp?v=1" },
+  { name: "Профи-дебютант", avatar: "bolt", sprite: "./assets/stages/stage-12-pro.webp?v=1" },
+  { name: "Контендер", avatar: "target", sprite: "./assets/stages/stage-13-contender.webp?v=1" },
+  { name: "Чемпион Казахстана", avatar: "flag", sprite: "./assets/stages/stage-14-kz-champ.webp?v=1" },
+  { name: "Чемпион Азии", avatar: "crown", sprite: "./assets/stages/stage-15-asia-champ.webp?v=1" },
+  { name: "Геннадий Головкин", avatar: "boxing", sprite: "./assets/stages/stage-16-legend-gg.webp?v=1" },
+  { name: "Александр Карелин", avatar: "wrestling", sprite: "./assets/stages/stage-17-legend-wrestler.webp?v=1" },
+  { name: "Мохаммед Али", avatar: "sparkles", sprite: "./assets/stages/stage-18-legend-ali.webp?v=1" },
+  { name: "Майк Тайсон", avatar: "flame", sprite: "./assets/stages/stage-19-legend-iron.webp?v=1" },
+  { name: "Легенда всех времён", avatar: "crown", sprite: "./assets/stages/stage-20-ultimate.webp?v=1" },
 ];
 
-/** Координаты этапов в % карты (x,y). Нижний район 1–10, верхний 11–20. */
+/** Координаты этапов в % карты (x,y). Калибровано под map-city 900×1350. */
 export const STAGE_ROAD = [
-  // lower sports district (bottom panel)
-  [47.0, 96.8],
-  [49.5, 92.6],
-  [51.0, 88.4],
-  [43.5, 84.2],
-  [39.0, 80.0],
-  [50.5, 75.6],
-  [58.5, 71.4],
-  [52.0, 67.0],
-  [45.5, 61.8],
-  [50.0, 53.0],
-  // upper champions district (top panel)
-  [44.0, 47.2],
-  [53.5, 42.4],
-  [60.5, 37.8],
-  [54.0, 33.2],
-  [49.0, 28.6],
-  [47.5, 23.8],
-  [58.0, 18.8],
-  [56.0, 13.6],
-  [48.5, 8.6],
-  [50.0, 4.2],
+  [51.8, 91.5],
+  [51.6, 87.4],
+  [48.0, 83.4],
+  [43.2, 79.4],
+  [41.4, 75.3],
+  [44.6, 71.3],
+  [52.0, 67.3],
+  [56.4, 63.3],
+  [53.6, 59.3],
+  [44.9, 55.3],
+  [41.5, 51.2],
+  [48.0, 47.2],
+  [55.0, 43.0],
+  [58.0, 38.6],
+  [57.5, 34.4],
+  [54.5, 30.4],
+  [52.5, 26.4],
+  [51.5, 22.4],
+  [50.5, 18.6],
+  [50.0, 15.0],
 ];
 
 export function todayKey() {
@@ -177,7 +175,14 @@ export function battleFx(h) {
   };
   (h.loadout || []).forEach((id) => {
     const sk = skillMeta(id);
-    if (!sk || h.level < sk.req) return;
+    if (!sk) return;
+    const owned = Array.isArray(h.ownedSkills) ? h.ownedSkills : null;
+    // Prefer ownership; fall back to level gate for unsynced old saves.
+    if (owned && owned.length) {
+      if (!owned.includes(id)) return;
+    } else if (h.level < sk.req) {
+      return;
+    }
     const e = sk.effect || {};
     if (e.comboChance) {
       fx.comboChance += e.comboChance;
@@ -244,6 +249,14 @@ export function eloOf(trophies) {
   return 1000 + Math.max(0, Number(trophies) || 0);
 }
 
+export function rankedEloDelta(playerTrophies, opponentTrophies, won, kFactor = 24) {
+  const playerElo = eloOf(playerTrophies);
+  const opponentElo = eloOf(opponentTrophies);
+  const expected = 1 / (1 + 10 ** ((opponentElo - playerElo) / 400));
+  const raw = Math.round(kFactor * ((won ? 1 : 0) - expected));
+  return won ? clamp(raw, 1, 12) : clamp(raw, -12, -1);
+}
+
 /** Насколько «далеко» ушёл прогресс — бои, уровни, статы, монеты, квесты и т.д. */
 export function stateSyncScore(st) {
   if (!st || !st.hero) return 0;
@@ -271,6 +284,7 @@ export function stateSyncScore(st) {
     + stages * 500
     + (Number(h.trophies) || 0) * 10
     + (Number(h.coins) || 0)
+    + (Number(h.tokens) || 0)
     + (Number(h.seasonPoints) || 0) * 5
     + statSum * 50
     + spentStatPoints * 80
@@ -288,8 +302,17 @@ export function pickNewerState(local, remote) {
   if (!remote || !remote.hero) return local;
   const ls = stateSyncScore(local);
   const rs = stateSyncScore(remote);
-  if (ls !== rs) return ls > rs ? local : remote;
-  return (Number(local.updatedAt) || 0) >= (Number(remote.updatedAt) || 0) ? local : remote;
+  const base = ls !== rs
+    ? (ls > rs ? local : remote)
+    : ((Number(local.updatedAt) || 0) >= (Number(remote.updatedAt) || 0) ? local : remote);
+  // Кошелёк токенов — всегда с сервера (траты на кейс не должны «откатываться»).
+  if (remote.hero && Object.prototype.hasOwnProperty.call(remote.hero, "tokens")) {
+    const tokens = Math.max(0, Math.floor(Number(remote.hero.tokens) || 0));
+    if ((Number(base.hero.tokens) || 0) !== tokens) {
+      return { ...base, hero: { ...base.hero, tokens } };
+    }
+  }
+  return base;
 }
 
 export function addXpPure(hero, amount) {
@@ -333,6 +356,8 @@ export function makeOpponent(hero, rng = Math.random) {
     level: lvl,
     stats,
     power: powerOf(stats, lvl),
+    trophies: Math.max(0, (Number(hero.trophies) || 0) + ri(-25, 25)),
+    isBot: true,
   };
 }
 
@@ -351,18 +376,50 @@ export function mapPlayerToOpponent(p, rng = Math.random) {
     level: lvl,
     stats,
     power: powerOf(stats, lvl),
+    trophies: Math.max(0, Number(p.trophies) || 0),
   };
 }
 
-export function simulateBattle(hero, opp, disc, rng = Math.random) {
+export function pickRankedOpponent(hero, candidates, rng = Math.random) {
+  const pool = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
+  if (!pool.length) return makeOpponent(hero, rng);
+
+  const playerPower = Math.max(1, heroPower(hero));
+  const playerTrophies = Math.max(0, Number(hero.trophies) || 0);
+  const ranked = pool.map((opp) => {
+    const levelDiff = Math.abs((Number(opp.level) || 1) - (Number(hero.level) || 1));
+    const powerDiff = Math.abs((Number(opp.power) || 0) - playerPower) / playerPower;
+    const trophyDiff = Math.abs((Number(opp.trophies) || 0) - playerTrophies);
+    const score = levelDiff * 3 + powerDiff * 12 + trophyDiff / 50;
+    return { opp, levelDiff, powerDiff, trophyDiff, score };
+  });
+
+  const tiers = [
+    (x) => x.levelDiff <= 2 && x.powerDiff <= 0.15 && x.trophyDiff <= 100,
+    (x) => x.levelDiff <= 3 && x.powerDiff <= 0.25 && x.trophyDiff <= 250,
+  ];
+  const matches = tiers.map((accept) => ranked.filter(accept)).find((items) => items.length);
+  if (!matches) return makeOpponent(hero, rng);
+
+  const finalists = matches.sort((a, b) => a.score - b.score).slice(0, 5);
+  const idx = Math.min(finalists.length - 1, Math.floor(rng() * finalists.length));
+  return finalists[idx].opp;
+}
+
+export function simulateBattle(hero, opp, disc, rng = Math.random, ruleset = "standard") {
   const { rnd } = makeRngHelpers(rng);
   const ps = effectiveStats(hero);
   const es = opp.stats;
   const fx = battleFx(hero);
   const decid = disc ? disc.stat : null;
+  const ranked = ruleset === "ranked";
 
-  let pHP = Math.round((100 + ps.end * 6 + hero.level * 8) * (1 + fx.hpBonus));
-  let eHP = 100 + es.end * 6 + opp.level * 8;
+  let pHP = ranked
+    ? Math.round((150 + ps.end * 3 + hero.level * 9) * (1 + Math.min(0.3, fx.hpBonus)))
+    : Math.round((100 + ps.end * 6 + hero.level * 8) * (1 + fx.hpBonus));
+  let eHP = ranked
+    ? Math.round(150 + es.end * 3 + opp.level * 9)
+    : 100 + es.end * 6 + opp.level * 8;
   const pMax = pHP;
   const eMax = eHP;
   const log = [];
@@ -384,16 +441,31 @@ export function simulateBattle(hero, opp, disc, rng = Math.random) {
   });
 
   const atk = (s) => {
+    if (ranked) return s.str * 0.4 + s.spd * 0.4 + s.int * 0.35 + s.team * 0.1;
     if (decid === "str") return s.str * 1.5 + s.spd * 0.35 + s.int * 0.4;
     if (decid === "spd") return s.spd * 1.5 + s.str * 0.45 + s.int * 0.4;
     if (decid === "int") return s.int * 1.5 + s.spd * 0.35 + s.str * 0.4;
     return s.str + s.spd * 0.7 + s.int * 0.5;
   };
   const def = (s) => {
+    if (ranked) {
+      const level = s === ps ? hero.level : opp.level;
+      return 8 + s.end * 0.25 + s.team * 0.12
+        + (s.str + s.spd + s.int) * 0.08 + level * 0.2;
+    }
     if (decid === "str") return s.end * 0.7 + s.str * 0.25 + s.team * 0.3;
     if (decid === "spd") return s.spd * 0.5 + s.end * 0.4 + s.team * 0.3;
     if (decid === "int") return s.int * 0.4 + s.end * 0.4 + s.team * 0.35;
     return s.end * 0.6 + s.team * 0.4;
+  };
+  const disciplineEdge = decid
+    ? clamp(((ps[decid] || 0) - (es[decid] || 0)) / Math.max(10, ps[decid] || 0, es[decid] || 0), -1, 1)
+    : 0;
+  const pDisciplineMult = ranked ? 1 + disciplineEdge * 0.02 : 1;
+  const eDisciplineMult = ranked ? 1 - disciplineEdge * 0.02 : 1;
+  const rankedDamage = (attacker, defender, level, disciplineMult, reduction = 0) => {
+    const base = 10 + (atk(attacker) - def(defender)) * 0.45 + level * 0.4;
+    return Math.max(1, base * disciplineMult * (1 - reduction));
   };
   let ultUsed = false;
   let firstStrikeUsed = false;
@@ -403,32 +475,56 @@ export function simulateBattle(hero, opp, disc, rng = Math.random) {
 
   const MAX_ROUNDS = 40;
   while (pHP > 0 && eHP > 0 && round <= MAX_ROUNDS) {
-    const fatigue = 1 + (round - 1) * 0.18;
+    const fatigue = 1 + (round - 1) * (ranked ? 0.1 : 0.18);
     const order = playerFirst ? ["p", "e"] : ["e", "p"];
     for (const who of order) {
       if (pHP <= 0 || eHP <= 0) break;
       if (who === "p") {
-        let dmg = (atk(ps) / (def(es) + 8)) * 14 * rnd(0.85, 1.2) * fatigue;
+        let dmg = (ranked
+          ? rankedDamage(ps, es, hero.level, pDisciplineMult)
+          : (atk(ps) / (def(es) + 8)) * 14) * rnd(0.85, 1.2) * fatigue;
         let crit = false;
         let atkFx = null;
         let skillId = null;
         let anim = "attack";
-        if (!firstStrikeUsed && fx.firstStrike > 1) {
+        if (ranked && fx.ultimate && !ultUsed && round >= 3) {
+          dmg *= fx.ultimate;
+          ultUsed = true;
+          crit = true;
+          atkFx = "ultimate";
+          skillId = fx.ultimateSkillId;
+          anim = "ultimate";
+          log.push({
+            t: `${hero.name} проводит коронный приём!`,
+            crit: true,
+            side: "p",
+            fx: "ultimate",
+            skillId,
+            anim,
+            actor: "p",
+            pHP,
+            eHP,
+          });
+        } else if (!firstStrikeUsed && fx.firstStrike > 1) {
           dmg *= fx.firstStrike;
           firstStrikeUsed = true;
           crit = true;
           atkFx = "firststrike";
           skillId = fx.firstStrikeSkillId;
           anim = "skill";
-        }
-        if (fx.comboChance && rng() < fx.comboChance) {
-          dmg *= fx.critMult;
+        } else if (fx.comboChance && rng() < Math.min(0.35, fx.comboChance)) {
+          dmg *= ranked ? 1.65 : fx.critMult;
           crit = true;
           atkFx = "combo";
           skillId = fx.comboSkillId;
           anim = "skill";
-        }
-        if (fx.ultimate && !ultUsed && round >= 3) {
+        } else if (ranked && fx.critSkillId && rng() < 0.12) {
+          dmg *= fx.critMult;
+          crit = true;
+          atkFx = "crit";
+          skillId = fx.critSkillId;
+          anim = "skill";
+        } else if (!ranked && fx.ultimate && !ultUsed && round >= 3) {
           dmg *= fx.ultimate;
           ultUsed = true;
           crit = true;
@@ -470,7 +566,7 @@ export function simulateBattle(hero, opp, disc, rng = Math.random) {
           eHP,
         });
       } else {
-        if (fx.stunChance && rng() < fx.stunChance) {
+        if (fx.stunChance && rng() < Math.min(ranked ? 0.3 : 1, fx.stunChance)) {
           log.push({
             t: `${opp.name} оглушён и пропускает удар!`,
             crit: false,
@@ -484,7 +580,7 @@ export function simulateBattle(hero, opp, disc, rng = Math.random) {
           });
           continue;
         }
-        if (fx.dodgeChance && rng() < fx.dodgeChance) {
+        if (fx.dodgeChance && rng() < Math.min(ranked ? 0.3 : 1, fx.dodgeChance)) {
           log.push({
             t: `${hero.name} уклоняется от удара!`,
             crit: false,
@@ -498,7 +594,9 @@ export function simulateBattle(hero, opp, disc, rng = Math.random) {
           });
           continue;
         }
-        let dmg = Math.max(1, Math.round((atk(es) / (def(ps) + 8)) * 14 * rnd(0.85, 1.2) * (1 - fx.dmgReduction) * fatigue));
+        let dmg = Math.max(1, Math.round((ranked
+          ? rankedDamage(es, ps, opp.level, eDisciplineMult, Math.min(0.3, fx.dmgReduction))
+          : (atk(es) / (def(ps) + 8)) * 14 * (1 - fx.dmgReduction)) * rnd(0.85, 1.2) * fatigue));
         pHP = Math.max(0, pHP - dmg);
         const ko = pHP <= 0;
         log.push({
@@ -564,7 +662,16 @@ export function stageOpponent(n) {
   GAME.stats.forEach((s, i) => { stats[s.id] = Math.max(4, Math.round(budget * weights[i] / wsum)); });
   const enemy = STAGE_ENEMIES[(n - 1) % STAGE_ENEMIES.length];
   const sport = GAME.sports[n % GAME.sports.length];
-  return { name: enemy.name, avatar: enemy.avatar, sport: sport.id, sprite: sport.sprite, level, stats, power: powerOf(stats, level), stage: n };
+  return {
+    name: enemy.name,
+    avatar: enemy.avatar,
+    sport: sport.id,
+    sprite: enemy.sprite || sport.sprite,
+    level,
+    stats,
+    power: powerOf(stats, level),
+    stage: n,
+  };
 }
 
 export function recommendedLevel(hero, opp) {
@@ -572,11 +679,24 @@ export function recommendedLevel(hero, opp) {
   return Math.max(1, Math.round((opp.power - heroStatPower) / 6) + 1);
 }
 
-export function estimateWinChance(hero, opp) {
+export function estimateWinChance(hero, opp, disc = null, ruleset = "standard") {
+  if (ruleset === "ranked" && disc) {
+    const samples = 120;
+    const rng = seededRandom("ranked-win-chance-v1");
+    let wins = 0;
+    for (let i = 0; i < samples; i++) {
+      if (simulateBattle(hero, opp, disc, rng, "ranked").win) wins++;
+    }
+    return clamp(Math.round((wins / samples) * 100), 3, 97);
+  }
+
   const hp = heroPower(hero);
   const activeSkills = (hero.loadout || []).filter((id) => {
     const sk = skillMeta(id);
-    return sk && hero.level >= sk.req;
+    if (!sk) return false;
+    const owned = Array.isArray(hero.ownedSkills) ? hero.ownedSkills : null;
+    if (owned && owned.length) return owned.includes(id);
+    return hero.level >= sk.req;
   }).length;
   let base = (hp / (hp + opp.power)) * 100 + activeSkills * 4;
   return clamp(Math.round(base), 3, 97);

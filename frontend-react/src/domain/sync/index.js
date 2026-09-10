@@ -114,11 +114,36 @@ async function request(path, opts = {}) {
   let data = null;
   try { data = await res.json(); } catch (e) {}
   if (!res.ok) {
-    const err = new Error((data && data.error) || ("Ошибка сервера (" + res.status + ")"));
+    const err = new Error(
+      (data && (data.message || data.error)) || ("Ошибка сервера (" + res.status + ")")
+    );
     err.status = res.status;
+    err.data = data;
     throw err;
   }
   return data;
+}
+
+async function otpSend(phone, purpose = "verification") {
+  const d = await request("/otp/send", { method: "POST", body: { phone, purpose } });
+  if (d && d.success === false) {
+    throw new Error(d.message || "Не удалось отправить код");
+  }
+  return d;
+}
+
+async function otpVerify(phone, code, purpose = "verification") {
+  const d = await request("/otp/verify", { method: "POST", body: { phone, code, purpose } });
+  if (d && d.success === false) {
+    throw new Error(d.message || "Неверный код");
+  }
+  if (purpose === "login" && d && d.token) {
+    const nextUser = d.username || "";
+    writeOutbox([]);
+    bindAccountSession(nextUser);
+    setToken(d.token);
+  }
+  return d;
 }
 
 async function register(payload) {
@@ -157,6 +182,9 @@ async function exerciseDaily() { return request("/exercise/daily"); }
 async function completeExerciseSession(payload) {
   return request("/exercise/session", { method: "POST", body: payload });
 }
+async function openSkillBox() {
+  return request("/boxes/open", { method: "POST", body: {} });
+}
 async function progressSummary(period = "week") {
   return request("/progress/summary?period=" + encodeURIComponent(period));
 }
@@ -166,6 +194,9 @@ async function pushSubscribe(subscription, timezone) {
 }
 async function pushUnsubscribe(endpoint) {
   return request("/push/unsubscribe", { method: "POST", body: { endpoint } });
+}
+async function pushTest() {
+  return request("/push/test", { method: "POST", body: {} });
 }
 async function leaderboard() { return request("/leaderboard"); }
 
@@ -181,7 +212,26 @@ async function removeGuildMember(childId) { return request("/guild/member/" + ch
 async function transferGuildMember(childId, guildCode) { return request("/guild/member/" + childId + "/transfer", { method: "POST", body: { guildCode } }); }
 async function guildPreview(code) { return request("/guild/preview?code=" + encodeURIComponent(code)); }
 async function setGuildSport(sport) { return request("/guild/sport", { method: "PUT", body: { sport } }); }
-async function changePassword(oldPassword, newPassword) { return request("/account/password", { method: "POST", body: { oldPassword, newPassword } }); }
+async function changePassword(oldPassword, newPassword) {
+  const d = await request("/account/password", { method: "POST", body: { oldPassword, newPassword } });
+  if (d && d.token) setToken(d.token);
+  return d;
+}
+async function bindPhoneSend(phone) {
+  const d = await request("/account/phone/send", { method: "POST", body: { phone } });
+  if (d && d.success === false) {
+    throw new Error(d.message || "Не удалось отправить код");
+  }
+  return d;
+}
+async function bindPhoneConfirm(phone, code) {
+  const d = await request("/account/phone/confirm", { method: "POST", body: { phone, code } });
+  if (d && d.success === false) {
+    throw new Error(d.message || "Неверный код");
+  }
+  if (d && d.token) setToken(d.token);
+  return d;
+}
 async function logoutAll() { return request("/account/logout-all", { method: "POST" }); }
 async function deleteAccount(password) { return request("/account", { method: "DELETE", body: { password } }); }
 
@@ -191,9 +241,14 @@ async function saveStateQueued(state) {
   parkSaveState(state);
   if (!isOnline()) return { queued: true };
   try {
-    await saveState(state);
+    const d = await saveState(state);
     writeOutbox(readOutbox().filter((x) => x.type !== "saveState"));
-    return { ok: true };
+    if (d && d.state && typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(new CustomEvent("sporthero-state-patch", { detail: d.state }));
+      } catch (_) { /* ignore */ }
+    }
+    return { ok: true, state: d && d.state };
   } catch (e) {
     if (e && e.status === 401) throw e;
     // Уже в outbox через parkSaveState
@@ -238,7 +293,7 @@ async function requestLeaveAttendanceQueued(date) {
   }
 }
 
-/** Завершение камерной тренировки с очередью при офлайне (XP только с сервера). */
+/** Завершение камерной тренировки с очередью при офлайне (токены только с сервера). */
 async function completeExerciseSessionQueued(payload) {
   if (!getToken()) throw Object.assign(new Error("Нужен вход"), { status: 401 });
   const body = {
@@ -248,7 +303,7 @@ async function completeExerciseSessionQueued(payload) {
   };
   if (!isOnline()) {
     enqueue({ type: "exerciseSession", payload: body });
-    return { queued: true, ...body, xpAwarded: 0, acceptedReps: 0 };
+    return { queued: true, ...body, tokensAwarded: 0, xpAwarded: 0, acceptedReps: 0 };
   }
   try {
     const d = await completeExerciseSession(body);
@@ -260,7 +315,7 @@ async function completeExerciseSessionQueued(payload) {
     if (e && e.status === 401) throw e;
     if (e && e.status >= 400 && e.status < 500 && e.status !== 0) throw e;
     enqueue({ type: "exerciseSession", payload: body });
-    return { queued: true, ...body, xpAwarded: 0, acceptedReps: 0, error: e };
+    return { queued: true, ...body, tokensAwarded: 0, xpAwarded: 0, acceptedReps: 0, error: e };
   }
 }
 
@@ -276,7 +331,12 @@ async function flushOutbox() {
       const job = items[0];
       try {
         if (job.type === "saveState") {
-          await saveState(job.payload);
+          const d = await saveState(job.payload);
+          if (d && d.state && typeof window !== "undefined") {
+            try {
+              window.dispatchEvent(new CustomEvent("sporthero-state-patch", { detail: d.state }));
+            } catch (_) { /* ignore */ }
+          }
         } else if (job.type === "attendance") {
           await requestAttendance(job.payload.date);
         } else if (job.type === "attendanceLeave") {
@@ -341,13 +401,13 @@ function startSyncWatchers() {
 }
 
 export const SHApi = {
-  getToken, setToken, register, login, getState, saveState, logout,
+  getToken, setToken, register, login, otpSend, otpVerify, getState, saveState, logout,
   requestAttendance, requestLeaveAttendance, myAttendance, guildRoster, claimGuildChest, progressSummary, leaderboard,
-  exerciseDaily, completeExerciseSession, completeExerciseSessionQueued,
+  exerciseDaily, completeExerciseSession, completeExerciseSessionQueued, openSkillBox,
   guildInfo, guildMembers, guildAttendance, decideAttendance, decideLeaveAttendance, setMemberSchedule,
   setGuildSchedule, removeGuildMember, transferGuildMember,
-  guildPreview, setGuildSport, changePassword, logoutAll, deleteAccount,
-  pushVapidKey, pushSubscribe, pushUnsubscribe,
+  guildPreview, setGuildSport, changePassword, bindPhoneSend, bindPhoneConfirm, logoutAll, deleteAccount,
+  pushVapidKey, pushSubscribe, pushUnsubscribe, pushTest,
   hasToken: () => !!getToken(),
   // Offline sync
   isOnline, outboxCount, isFlushing, enqueue, flushOutbox,

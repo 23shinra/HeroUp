@@ -22,6 +22,10 @@ export function useRemindersBoot() {
     if (!booted || S.role !== "child" || !S.auth?.loggedIn) return;
     ensureRemindersDefault(S.role);
     scheduleReminders({ role: S.role, hero: S.hero, myAttendance });
+    // Re-sync Web Push when already on (VAPID/keys may have changed).
+    if (remindersFullyOn()) {
+      syncPushSubscription(true).catch(() => {});
+    }
   }, [booted, S.role, S.auth?.loggedIn, S.hero?.schedule, S.hero?.streak, myAttendance]);
 
   useEffect(() => {

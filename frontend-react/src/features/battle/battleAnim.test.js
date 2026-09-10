@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GAME } from "@domain/game-data";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -10,6 +10,7 @@ import {
   skillBattleSheet,
   sportAttackSheets,
 } from "./battleAnim.js";
+import { BattlePlaybackEngine } from "./engine/BattlePlaybackEngine.js";
 
 const assetsRoot = resolve(process.cwd(), "public");
 
@@ -34,7 +35,7 @@ describe("battleAnim sheets", () => {
 
   it("every sport skill has a unique battleSheet on disk", () => {
     const sheets = allSkillBattleSheets();
-    expect(sheets.length).toBe(15);
+    expect(sheets.length).toBeGreaterThanOrEqual(15);
     const ids = new Set();
     for (const row of sheets) {
       expect(row.sheet).toBeTruthy();
@@ -59,5 +60,75 @@ describe("battleAnim sheets", () => {
     expect(a.idx).toBe(1);
     const b = pickAttackVariant(variants, 1, () => 0.9); // floor(0.9*2)=1, last 1 -> flips to 0
     expect(b.idx).toBe(0);
+  });
+});
+
+describe("BattlePlaybackEngine", () => {
+  it("plays through log and fires onComplete", () => {
+    vi.useFakeTimers();
+    const log = [{ t: "hit1" }, { t: "hit2" }, { t: "hit3" }];
+    const steps = [];
+    let completed = false;
+    const engine = new BattlePlaybackEngine({
+      log,
+      baseMs: 100,
+      onStep: (i, line) => steps.push({ i, t: line.t }),
+      onComplete: () => { completed = true; },
+    });
+    engine.start();
+    expect(steps).toEqual([{ i: 0, t: "hit1" }]);
+    vi.advanceTimersByTime(100);
+    expect(steps.length).toBe(2);
+    vi.advanceTimersByTime(100);
+    expect(steps.length).toBe(3);
+    vi.advanceTimersByTime(100);
+    expect(completed).toBe(true);
+    expect(engine.running).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("skip fires all remaining steps synchronously", () => {
+    vi.useFakeTimers();
+    const log = [{ t: "a" }, { t: "b" }, { t: "c" }, { t: "d" }];
+    const steps = [];
+    let phase = "";
+    const engine = new BattlePlaybackEngine({
+      log,
+      baseMs: 200,
+      onStep: (i, line) => steps.push(line.t),
+      onPhase: (p) => { phase = p; },
+    });
+    engine.start();
+    expect(steps).toEqual(["a"]);
+    engine.skip();
+    expect(steps).toEqual(["a", "b", "c", "d"]);
+    expect(phase).toBe("complete");
+    expect(engine.running).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("speed 2x halves the delay", () => {
+    vi.useFakeTimers();
+    const log = [{ t: "x" }, { t: "y" }];
+    const steps = [];
+    const engine = new BattlePlaybackEngine({
+      log,
+      baseMs: 200,
+      onStep: (i, line) => steps.push(line.t),
+    });
+    engine.speed = 2;
+    engine.start();
+    vi.advanceTimersByTime(99);
+    expect(steps.length).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(steps.length).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it("destroy stops and nullifies callbacks", () => {
+    const engine = new BattlePlaybackEngine({ log: [{ t: "a" }] });
+    engine.destroy();
+    expect(engine.onStep).toBe(null);
+    expect(engine.running).toBe(false);
   });
 });

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  computeExerciseXp,
+  computeExerciseTokens,
   createExerciseCounter,
   EXERCISE_TYPES,
+  EXERCISE_DAILY_TOKEN_CAP,
+  EXERCISE_TOKENS_PER_REP,
   newExerciseSessionId,
 } from "../../domain/exercise/index.js";
 import { Icon } from "../../components/Icon.jsx";
@@ -41,15 +43,17 @@ export default function CameraWorkoutOverlay({ exerciseType, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const [summary, setSummary] = useState(null);
 
-  const usedXpToday = useMemo(() => {
+  const usedTokensToday = useMemo(() => {
     const day = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Almaty" });
-    if (heroExercise?.lastDay === day) return Number(heroExercise.dayXp) || 0;
+    if (heroExercise?.lastDay === day) {
+      return Number(heroExercise.dayTokens ?? heroExercise.dayXp) || 0;
+    }
     return 0;
   }, [heroExercise]);
 
   const previewReward = useMemo(
-    () => computeExerciseXp(reps, { usedXpToday }),
-    [reps, usedXpToday],
+    () => computeExerciseTokens(reps, { usedTokensToday }),
+    [reps, usedTokensToday],
   );
 
   useEffect(() => {
@@ -160,8 +164,8 @@ export default function CameraWorkoutOverlay({ exerciseType, onClose }) {
         setSummary({
           reps: 0,
           acceptedReps: 0,
-          xpAwarded: 0,
-          remainingXp: Math.max(0, 60 - usedXpToday),
+          tokensAwarded: 0,
+          remainingTokens: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - usedTokensToday),
           queued: false,
           zero: true,
         });
@@ -172,20 +176,21 @@ export default function CameraWorkoutOverlay({ exerciseType, onClose }) {
         exerciseType,
         reps: counted,
       });
+      const tokensAwarded = result.tokensAwarded ?? result.xpAwarded ?? 0;
+      const remainingTokens = result.remainingTokens ?? result.remainingXp;
       setSummary({
         reps: counted,
         acceptedReps: result.acceptedReps ?? counted,
-        xpAwarded: result.xpAwarded || 0,
-        remainingXp: result.remainingXp,
+        tokensAwarded,
+        remainingTokens,
         queued: !!result.queued,
         already: !!result.already,
-        leveled: result.leveled || 0,
       });
       if (result.queued) {
-        toastMsg("Офлайн: опыт начислится при появлении сети");
-      } else if (result.xpAwarded > 0) {
-        toastMsg(`+${result.xpAwarded} XP за тренировку`);
-      } else if (result.remainingXp === 0) {
+        toastMsg("Офлайн: токены начислятся при появлении сети");
+      } else if (tokensAwarded > 0) {
+        toastMsg(`+${tokensAwarded} токенов за тренировку`);
+      } else if (remainingTokens === 0) {
         toastMsg("Дневной лимит камерных тренировок исчерпан");
       }
     } catch (e) {
@@ -236,11 +241,11 @@ export default function CameraWorkoutOverlay({ exerciseType, onClose }) {
         </button>
         <div className="exercise-overlay__title">
           <strong>{meta.name}</strong>
-          <small>2 XP / повтор · лимит 60 XP/день</small>
+          <small>{EXERCISE_TOKENS_PER_REP} ток. / повтор · лимит {EXERCISE_DAILY_TOKEN_CAP}/день</small>
         </div>
         <div className="exercise-overlay__xp">
-          <span>{previewReward.xp}</span>
-          <small>XP</small>
+          <span>{previewReward.tokens}</span>
+          <small>ток.</small>
         </div>
       </div>
 
@@ -281,10 +286,10 @@ export default function CameraWorkoutOverlay({ exerciseType, onClose }) {
                 : ""}
             </p>
             <p>
-              Опыт: <b>+{summary.xpAwarded || 0} XP</b>
-              {typeof summary.remainingXp === "number" ? ` · осталось сегодня ${summary.remainingXp}` : ""}
+              Токены: <b>+{summary.tokensAwarded || 0}</b>
+              {typeof summary.remainingTokens === "number" ? ` · осталось сегодня ${summary.remainingTokens}` : ""}
             </p>
-            {summary.queued ? <p className="muted">Сессия в очереди — начислим XP при сети.</p> : null}
+            {summary.queued ? <p className="muted">Сессия в очереди — начислим токены при сети.</p> : null}
             <button type="button" className="btn" onClick={closeSummary}>Готово</button>
           </div>
         )}

@@ -80,11 +80,29 @@ export async function syncPushSubscription(enable) {
   let keyData;
   try { keyData = await SHApi.pushVapidKey(); } catch { return false; }
   if (!keyData?.publicKey) return false;
+  const appKey = urlBase64ToUint8Array(keyData.publicKey);
   let sub = await reg.pushManager.getSubscription();
+  // Если ключ сменился — старая подписка невалидна, пересоздаём.
+  if (sub) {
+    try {
+      const existing = sub.options && sub.options.applicationServerKey;
+      const same = existing
+        && existing.byteLength === appKey.byteLength
+        && Array.from(new Uint8Array(existing)).every((b, i) => b === appKey[i]);
+      if (!same) {
+        try { await SHApi.pushUnsubscribe(sub.endpoint); } catch { /* ignore */ }
+        try { await sub.unsubscribe(); } catch { /* ignore */ }
+        sub = null;
+      }
+    } catch {
+      try { await sub.unsubscribe(); } catch { /* ignore */ }
+      sub = null;
+    }
+  }
   if (!sub) {
     sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+      applicationServerKey: appKey,
     });
   }
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Almaty";
@@ -106,6 +124,9 @@ export async function enableReminders() {
   setRemindersEnabled(true);
   let pushOk = false;
   try { pushOk = await syncPushSubscription(true); } catch { pushOk = false; }
+  if (pushOk) {
+    try { await SHApi.pushTest(); } catch { /* ignore */ }
+  }
   try { new Notification("LevelUp", { body: "Будем напоминать о тренировках!" }); } catch { /* ignore */ }
   return {
     ok: true,

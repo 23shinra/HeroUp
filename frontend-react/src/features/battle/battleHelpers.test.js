@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sportMeta } from "@domain/game-engine";
-import { arenaOutcomeSprite } from "./battleHelpers.js";
+import { arenaOutcomeSprite, hasCustomBattleSprite } from "./battleHelpers.js";
 
 describe("battleHelpers arenaOutcomeSprite", () => {
   it("winner uses side-facing idle sprite", () => {
@@ -19,5 +19,13 @@ describe("battleHelpers arenaOutcomeSprite", () => {
     const fake = { ...sport, loseSprite: null };
     const src = arenaOutcomeSprite(fake, false);
     expect(src).toContain("/assets/boxer");
+  });
+});
+
+describe("hasCustomBattleSprite", () => {
+  it("detects map stage enemies", () => {
+    expect(hasCustomBattleSprite({ stage: 3, sprite: "./assets/stages/stage-03-bully.webp" })).toBe(true);
+    expect(hasCustomBattleSprite({ sprite: "./assets/stages/stage-01-hooligan.webp?v=1" })).toBe(true);
+    expect(hasCustomBattleSprite({ sport: "boxing", sprite: "./assets/boxer.png?v=7" })).toBe(false);
   });
 });

@@ -1,6 +1,9 @@
 // Хранение состояния героя в localStorage.
 // v2: с переходом на серверные аккаунты старый локальный прогресс сбрасывается —
 // все начинают с чистого листа и регистрируют аккаунт.
+import { GAME } from "../game-data/index.js";
+import { seedOwnedSkills } from "../loot/index.js";
+
 export const STORAGE_KEY = "sporthero.save.v2";
 export const ACCOUNT_KEY = "sporthero.account";
 const LEGACY_STORAGE_KEYS = ["sporthero.save.v1"];
@@ -24,7 +27,7 @@ export function setBoundAccount(username) {
 
 export function defaultState() {
   return {
-    auth: { loggedIn: false, email: "", username: "", role: "child", consent: false },
+    auth: { loggedIn: false, email: "", username: "", phone: "", passwordSet: false, role: "child", consent: false },
     role: "child", // child | trainer
     guild: null, // { id, name, code, trainerName }
     created: false,
@@ -35,6 +38,7 @@ export function defaultState() {
       level: 1,
       xp: 0,
       coins: 60,
+      tokens: 0, // токены за камерные тренировки → боксы скиллов
       trophies: 0,
       lastCheckIn: null, // ISO дата последней тренировки
       schedule: {}, // расписание тренировок (задаёт тренер): { "1": {from,to}, ... } ключ = день недели (0=Вс..6=Сб)
@@ -48,6 +52,7 @@ export function defaultState() {
       statPoints: 5, // очки характеристик к распределению (по 5 за уровень)
       abilities: [],
       loadout: [], // выбранные супер-скиллы для боя (до 3)
+      ownedSkills: [], // открытые скиллы (уровень + боксы)
       seenSkills: [], // просмотренные открытые скиллы (для бейджа «новый навык»)
       achievementsClaimed: [], // полученные достижения
       stagesCleared: [], // пройденные этапы карты боёв
@@ -131,6 +136,12 @@ export function hydrateState(obj) {
   if (merged.hero) {
     delete merged.hero.streak;
     delete merged.hero.streakMilestonesClaimed;
+    if (!Number.isFinite(Number(merged.hero.tokens))) merged.hero.tokens = 0;
+    else merged.hero.tokens = Math.max(0, Math.floor(Number(merged.hero.tokens)));
+    merged.hero.ownedSkills = seedOwnedSkills(merged.hero, (sport) => (GAME.sportSkills && GAME.sportSkills[sport]) || []);
+    const owned = new Set(merged.hero.ownedSkills);
+    if (!Array.isArray(merged.hero.loadout)) merged.hero.loadout = [];
+    else merged.hero.loadout = merged.hero.loadout.filter((id) => owned.has(id)).slice(0, 3);
   }
   return merged;
 }

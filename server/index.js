@@ -4,11 +4,26 @@
 // Express + SQLite (better-sqlite3). Пароли — bcrypt, сессии — JWT.
 
 const path = require("path");
+const crypto = require("crypto");
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const QRCode = require("qrcode");
 const Database = require("better-sqlite3");
+const {
+  SKILL_BOX_COST,
+  SKILL_RARITIES,
+  sportSkills,
+  boxSkills,
+  rollSkillBox,
+  seedOwnedSkills,
+} = require("./loot");
+const {
+  normalizePhone,
+  phoneLooksValid,
+  sendOtp,
+  verifyOtp,
+} = require("./cascadeOtp");
 
 const PORT = process.env.PORT || 3021;
 const JWT_SECRET = process.env.JWT_SECRET || "sporthero-dev-secret-change-me";
@@ -65,10 +80,32 @@ for (const [col, ddl] of [
   ["leave_requested_at", "ALTER TABLE attendance ADD COLUMN leave_requested_at TEXT"],
   ["leave_decided_at", "ALTER TABLE attendance ADD COLUMN leave_decided_at TEXT"],
   ["sport", "ALTER TABLE guilds ADD COLUMN sport TEXT"],
+  ["schedule_json", "ALTER TABLE guilds ADD COLUMN schedule_json TEXT NOT NULL DEFAULT '{}'"],
   ["token_rev", "ALTER TABLE users ADD COLUMN token_rev INTEGER NOT NULL DEFAULT 0"],
+  ["wallet_tokens", "ALTER TABLE users ADD COLUMN wallet_tokens INTEGER NOT NULL DEFAULT 0"],
+  ["phone", "ALTER TABLE users ADD COLUMN phone TEXT"],
+  ["password_set", "ALTER TABLE users ADD COLUMN password_set INTEGER NOT NULL DEFAULT 1"],
 ]) {
   try { db.exec(ddl); } catch (e) { /* столбец уже есть */ }
 }
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_phone_uq ON users(phone) WHERE phone IS NOT NULL AND phone != ''"); } catch (_) { /* ignore */ }
+
+// Одноразовая заливка кошелька из state_json (только вверх, никогда вниз).
+try {
+  const rows = db.prepare("SELECT id, state_json, wallet_tokens FROM users").all();
+  const bump = db.prepare(
+    "UPDATE users SET wallet_tokens = ? WHERE id = ? AND wallet_tokens < ?"
+  );
+  for (const row of rows) {
+    let fromJson = 0;
+    try {
+      fromJson = Math.max(0, Math.floor(Number(JSON.parse(row.state_json || "{}").hero?.tokens) || 0));
+    } catch (_) { /* ignore */ }
+    const cur = Math.max(0, Math.floor(Number(row.wallet_tokens) || 0));
+    const next = Math.max(cur, fromJson);
+    if (next > cur) bump.run(next, row.id, next);
+  }
+} catch (_) { /* ignore */ }
 
 // Границы текущей недели (Пн..Вс) в виде дат "YYYY-MM-DD".
 function weekRange(base = new Date()) {
@@ -85,15 +122,44 @@ function scheduledPerWeek(scheduleJson) {
   catch (e) { return 0; }
 }
 
+/** Расписание гильдии — единое для всех детей. */
+function scheduleOfUser(user) {
+  if (user && user.guild_id) {
+    const guild = q.guildById.get(user.guild_id);
+    if (guild) return safeParseJson(guild.schedule_json || "{}", {});
+  }
+  return safeParseJson((user && user.schedule_json) || "{}", {});
+}
+
+function scheduleJsonOfUser(user) {
+  return JSON.stringify(scheduleOfUser(user));
+}
+
+/** Сохранить расписание гильдии и синхронизировать всем детям. */
+function applyGuildSchedule(guildId, schedule) {
+  const json = JSON.stringify(schedule && typeof schedule === "object" ? schedule : {});
+  q.setGuildScheduleCol.run(json, guildId);
+  q.setScheduleByGuild.run(json, guildId);
+  return json;
+}
+
 const q = {
   byUsername: db.prepare("SELECT * FROM users WHERE username_lc = ?"),
   byId: db.prepare("SELECT * FROM users WHERE id = ?"),
+  byPhone: db.prepare("SELECT * FROM users WHERE phone = ?"),
   insertUser: db.prepare(
-    "INSERT INTO users (username, username_lc, password_hash, role, guild_id, schedule_json, state_json) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO users (username, username_lc, password_hash, role, guild_id, schedule_json, state_json, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   ),
+  setPhone: db.prepare("UPDATE users SET phone = ?, updated_at = datetime('now') WHERE id = ?"),
   setGuildId: db.prepare("UPDATE users SET guild_id = ? WHERE id = ?"),
   saveState: db.prepare("UPDATE users SET state_json = ?, updated_at = datetime('now') WHERE id = ?"),
-  setPassword: db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?"),
+  setWallet: db.prepare("UPDATE users SET wallet_tokens = ?, updated_at = datetime('now') WHERE id = ?"),
+  addWallet: db.prepare("UPDATE users SET wallet_tokens = wallet_tokens + ?, updated_at = datetime('now') WHERE id = ?"),
+  spendWallet: db.prepare(
+    "UPDATE users SET wallet_tokens = wallet_tokens - ?, updated_at = datetime('now') WHERE id = ? AND wallet_tokens >= ?"
+  ),
+  setPassword: db.prepare("UPDATE users SET password_hash = ?, password_set = 1, updated_at = datetime('now') WHERE id = ?"),
+  setPasswordSet: db.prepare("UPDATE users SET password_set = ?, updated_at = datetime('now') WHERE id = ?"),
   bumpTokenRev: db.prepare("UPDATE users SET token_rev = token_rev + 1, updated_at = datetime('now') WHERE id = ?"),
   deleteAttendanceByChild: db.prepare("DELETE FROM attendance WHERE child_id = ?"),
   deleteUserById: db.prepare("DELETE FROM users WHERE id = ?"),
@@ -101,6 +167,7 @@ const q = {
   deleteGuildById: db.prepare("DELETE FROM guilds WHERE id = ?"),
   setSchedule: db.prepare("UPDATE users SET schedule_json = ?, updated_at = datetime('now') WHERE id = ?"),
   setScheduleByGuild: db.prepare("UPDATE users SET schedule_json = ?, updated_at = datetime('now') WHERE guild_id = ? AND role = 'child'"),
+  setGuildScheduleCol: db.prepare("UPDATE guilds SET schedule_json = ? WHERE id = ?"),
 
   insertGuild: db.prepare("INSERT INTO guilds (name, code, trainer_id, sport) VALUES (?, ?, ?, ?)"),
   guildById: db.prepare("SELECT * FROM guilds WHERE id = ?"),
@@ -134,6 +201,34 @@ const q = {
     "SELECT COUNT(*) AS n FROM attendance WHERE guild_id = ? AND status = 'approved' AND date >= ? AND date <= ?"),
   approvedByChild: db.prepare("SELECT COUNT(*) AS n FROM attendance WHERE child_id = ? AND status = 'approved'"),
 };
+
+/** Одноразовая миграция: вынести расписание с детей на гильдию и выровнять всех. */
+try {
+  const guilds = q.allGuilds.all();
+  for (const g of guilds) {
+    const current = safeParseJson(g.schedule_json || "{}", {});
+    const kids = q.childrenOfGuild.all(g.id);
+    let chosen = current;
+    if (!Object.keys(chosen).length) {
+      const counts = new Map();
+      for (const kid of kids) {
+        const raw = kid.schedule_json || "{}";
+        const parsed = safeParseJson(raw, {});
+        if (!Object.keys(parsed).length) continue;
+        counts.set(raw, (counts.get(raw) || 0) + 1);
+      }
+      let best = null;
+      let bestN = 0;
+      for (const [raw, n] of counts) {
+        if (n > bestN) { best = raw; bestN = n; }
+      }
+      if (best) chosen = safeParseJson(best, {});
+    }
+    applyGuildSchedule(g.id, chosen);
+  }
+} catch (e) {
+  console.warn("guild schedule migrate:", e && e.message);
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS guild_chest_claims (
@@ -192,8 +287,9 @@ db.exec(`
 `);
 
 const GUILD_CHEST_COINS = 60;
-const EXERCISE_XP_PER_REP = 2;
-const EXERCISE_DAILY_XP_CAP = 60;
+/** Токены за камерные тренировки (колонка xp_awarded хранит токены). */
+const EXERCISE_TOKENS_PER_REP = 1;
+const EXERCISE_DAILY_TOKEN_CAP = 30;
 const EXERCISE_MAX_REPS = 50;
 const EXERCISE_TYPES = new Set(["squat", "pushup"]);
 const STAT_POINTS_PER_LEVEL = 5;
@@ -232,7 +328,72 @@ function applyXpToHero(hero, amount) {
 
 function exerciseDayRemaining(userId, day) {
   const used = Number(q.exerciseDayXp.get(userId, day).xp) || 0;
-  return Math.max(0, EXERCISE_DAILY_XP_CAP - used);
+  return Math.max(0, EXERCISE_DAILY_TOKEN_CAP - used);
+}
+
+function ensureHeroLootFields(hero) {
+  if (!hero || typeof hero !== "object") return hero;
+  if (!Number.isFinite(Number(hero.tokens))) hero.tokens = 0;
+  else hero.tokens = Math.max(0, Math.floor(Number(hero.tokens)));
+  hero.ownedSkills = seedOwnedSkills(hero);
+  if (!Array.isArray(hero.loadout)) hero.loadout = [];
+  else {
+    const owned = new Set(hero.ownedSkills);
+    hero.loadout = hero.loadout.filter((id) => owned.has(id)).slice(0, 3);
+  }
+  return hero;
+}
+
+/** Источник истины по токенам — колонка users.wallet_tokens. */
+function walletOf(user) {
+  return Math.max(0, Math.floor(Number(user && user.wallet_tokens) || 0));
+}
+
+function parseUserState(user) {
+  const state = safeParseJson((user && user.state_json) || "{}", {});
+  if (!state.hero || typeof state.hero !== "object") state.hero = {};
+  state.hero.tokens = walletOf(user);
+  // Расписание всегда с гильдии — не из клиентского кеша.
+  if (user && user.role === "child") {
+    state.hero.schedule = scheduleOfUser(user);
+  }
+  return state;
+}
+
+/** Сохранить прогресс, зеркаля кошелёк в hero.tokens (клиент не может его занизить). */
+function persistUserState(userId, state) {
+  const user = q.byId.get(userId);
+  const next = state && typeof state === "object" ? JSON.parse(JSON.stringify(state)) : {};
+  if (!next.hero || typeof next.hero !== "object") next.hero = {};
+  next.hero.tokens = walletOf(user || { wallet_tokens: 0 });
+  q.saveState.run(JSON.stringify(next), userId);
+  return next;
+}
+
+/** Начислить токены (камера / админ). */
+function creditWallet(userId, amount) {
+  const n = Math.max(0, Math.floor(Number(amount) || 0));
+  if (n > 0) q.addWallet.run(n, userId);
+  return walletOf(q.byId.get(userId));
+}
+
+/**
+ * Списать токены. Разрешено только явным серверным действиям (бокс)
+ * или админ-эндпоинту — никогда из PUT /state.
+ */
+function debitWallet(userId, amount) {
+  const cost = Math.max(0, Math.floor(Number(amount) || 0));
+  if (cost === 0) return walletOf(q.byId.get(userId));
+  const r = q.spendWallet.run(cost, userId, cost);
+  if (!r.changes) return null;
+  return walletOf(q.byId.get(userId));
+}
+
+/** Админ: выставить абсолютный баланс (единственный путь «удалить» токены вручную). */
+function setWalletAdmin(userId, amount) {
+  const n = Math.max(0, Math.floor(Number(amount) || 0));
+  q.setWallet.run(n, userId);
+  return walletOf(q.byId.get(userId));
 }
 
 function monthRange(base = new Date()) {
@@ -337,7 +498,9 @@ function saveProgressSnapshot(userId, state) {
 function guildWeekly(guildId) {
   const { from, to } = weekRange();
   const kids = q.childrenOfGuild.all(guildId);
-  const target = kids.reduce((s, u) => s + scheduledPerWeek(u.schedule_json), 0);
+  const guild = q.guildById.get(guildId);
+  const perKid = scheduledPerWeek((guild && guild.schedule_json) || "{}");
+  const target = kids.length * perKid;
   const count = q.weekTotalGuild.get(guildId, from, to).n;
   return { count, target, members: kids.length, from, to };
 }
@@ -467,7 +630,7 @@ function slotBoundsMinutes(slot) {
  * а не часовым поясом сервера (часто UTC).
  */
 function trainingWindowForDate(user, dateStr, timeZone = APP_TZ) {
-  const schedule = safeParseJson(user.schedule_json || "{}", {});
+  const schedule = scheduleOfUser(user);
   const dow = dowForDateStr(dateStr);
   if (dow == null) return null;
   const bounds = slotBoundsMinutes(schedule[dow]);
@@ -492,7 +655,7 @@ function trainingWindowForDate(user, dateStr, timeZone = APP_TZ) {
 function isWithinTrainingWindow(user, dateStr, now = new Date(), timeZone = APP_TZ) {
   const local = localPartsInTz(now, timeZone);
   if (local.day !== dateStr) return false;
-  const schedule = safeParseJson(user.schedule_json || "{}", {});
+  const schedule = scheduleOfUser(user);
   const dow = dowForDateStr(dateStr);
   if (dow == null) return false;
   const bounds = slotBoundsMinutes(schedule[dow]);
@@ -530,6 +693,9 @@ function ensureChildState(nextState, oldState, user) {
   if (rawCoins - prevCoins > 1500) throw new Error("Подозрительный рост монет");
   const safeCoins = Math.max(0, Math.min(200000, rawCoins));
 
+  // Токены живут в users.wallet_tokens — клиентский PUT никогда их не меняет.
+  const safeTokens = Math.max(0, Math.floor(Number(user && user.wallet_tokens) || 0));
+
   const statIds = ["str", "spd", "end", "int", "team"];
   const statsObj = {};
   let statSum = 0;
@@ -564,8 +730,10 @@ function ensureChildState(nextState, oldState, user) {
   merged.hero.xp = safeXp;
   merged.hero.trophies = safeTrophies;
   merged.hero.coins = safeCoins;
+  merged.hero.tokens = safeTokens;
   merged.hero.stats = statsObj;
   merged.hero.statPoints = safeStatPoints;
+  merged.hero.schedule = scheduleOfUser(user);
   merged.stats.trainings = trainings;
   merged.stats.wins = wins;
   merged.stats.losses = losses;
@@ -588,8 +756,7 @@ function childSummary(user) {
   try { st = JSON.parse(user.state_json || "{}"); } catch (e) {}
   const hero = st.hero || {};
   const stats = st.stats || {};
-  let schedule = {};
-  try { schedule = JSON.parse(user.schedule_json || "{}"); } catch (e) {}
+  const schedule = scheduleOfUser(user);
   return {
     id: user.id,
     username: user.username,
@@ -697,19 +864,163 @@ function inviteUrlForGuild(guild, req) {
 
 function sessionPayload(user) {
   const guild = user.guild_id ? q.guildById.get(user.guild_id) : null;
-  let schedule = {};
-  try { schedule = JSON.parse(user.schedule_json || "{}"); } catch (e) {}
+  const schedule = scheduleOfUser(user);
   return {
     token: signToken(user),
     username: user.username,
     role: user.role,
-    state: JSON.parse(user.state_json || "{}"),
+    phone: user.phone || null,
+    passwordSet: Number(user.password_set) !== 0,
+    state: parseUserState(user),
     schedule,
     guild: guildPublic(guild),
   };
 }
 
+function signPhoneTicket(phone, purpose) {
+  return jwt.sign(
+    { phone, purpose: purpose || "register", kind: "otp_phone" },
+    JWT_SECRET,
+    { expiresIn: "15m" },
+  );
+}
+
+function readPhoneTicket(ticket, expectedPurpose) {
+  if (!ticket || typeof ticket !== "string") return null;
+  try {
+    const payload = jwt.verify(ticket, JWT_SECRET);
+    if (payload.kind !== "otp_phone") return null;
+    if (expectedPurpose && payload.purpose !== expectedPurpose) return null;
+    const phone = normalizePhone(payload.phone);
+    if (!phoneLooksValid(phone)) return null;
+    return { phone, purpose: payload.purpose };
+  } catch {
+    return null;
+  }
+}
+
+function otpHttpStatus(result) {
+  const st = Number(result && result.status) || 0;
+  if (st === 401 || st === 429 || st === 502 || st === 503) return st;
+  if (result && result.success) return 200;
+  return 422;
+}
+
+function publicOtpResult(result) {
+  const out = {
+    success: !!(result && result.success),
+    message: String((result && result.message) || (result && result.success ? "OK" : "Ошибка OTP")),
+  };
+  if (result && result.expires_in != null) out.expires_in = result.expires_in;
+  return out;
+}
+
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// Cascade OTP: отправка кода (только сервер → otp.kztusdt.kz).
+app.post("/api/otp/send", authRateLimit, async (req, res) => {
+  const phone = normalizePhone(req.body && req.body.phone);
+  const purpose = String((req.body && req.body.purpose) || "verification").slice(0, 40);
+  if (!phoneLooksValid(phone)) {
+    return res.status(422).json({ success: false, message: "Неверный формат номера телефона" });
+  }
+  if (purpose === "login") {
+    const user = q.byPhone.get(phone);
+    if (!user) {
+      return res.status(422).json({
+        success: false,
+        message: "Номер не привязан к аккаунту. Зарегистрируйся или войди по логину.",
+      });
+    }
+  }
+  if (purpose === "register") {
+    const taken = q.byPhone.get(phone);
+    if (taken) {
+      return res.status(422).json({ success: false, message: "Этот номер уже занят" });
+    }
+  }
+  try {
+    const result = await sendOtp(phone, { purpose });
+    return res.status(otpHttpStatus(result)).json(publicOtpResult(result));
+  } catch {
+    return res.status(502).json({ success: false, message: "Не удалось отправить код" });
+  }
+});
+
+// Cascade OTP: проверка кода. login → JWT; register → phoneTicket.
+app.post("/api/otp/verify", authRateLimit, async (req, res) => {
+  const phone = normalizePhone(req.body && req.body.phone);
+  const code = String((req.body && req.body.code) || "");
+  const purpose = String((req.body && req.body.purpose) || "verification").slice(0, 40);
+  if (!phoneLooksValid(phone)) {
+    return res.status(422).json({ success: false, message: "Неверный формат номера телефона" });
+  }
+  try {
+    const result = await verifyOtp(phone, code, purpose);
+    if (!(result && result.success)) {
+      return res.status(otpHttpStatus(result)).json(publicOtpResult(result));
+    }
+    if (purpose === "login") {
+      const user = q.byPhone.get(phone);
+      if (!user) {
+        return res.status(422).json({
+          success: false,
+          message: "Номер не привязан к аккаунту",
+        });
+      }
+      return res.json({ success: true, message: "Номер подтверждён", ...sessionPayload(user) });
+    }
+    if (purpose === "register") {
+      if (q.byPhone.get(phone)) {
+        return res.status(422).json({ success: false, message: "Этот номер уже занят" });
+      }
+      return res.json({
+        success: true,
+        message: "Номер подтверждён",
+        phone,
+        phoneTicket: signPhoneTicket(phone, "register"),
+      });
+    }
+    return res.json({
+      success: true,
+      message: result.message || "Номер подтверждён",
+      phone,
+      phoneTicket: signPhoneTicket(phone, purpose),
+    });
+  } catch {
+    return res.status(502).json({ success: false, message: "Не удалось проверить код" });
+  }
+});
+
+// Админ: выдать / выставить токены (единственный способ уменьшить баланс).
+app.post("/api/admin/wallet", (req, res) => {
+  const key = process.env.ADMIN_API_KEY || "";
+  if (!key || String((req.body && req.body.key) || req.get("x-admin-key") || "") !== key) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+  const username = String((req.body && req.body.username) || "").trim();
+  if (!username) return res.status(400).json({ error: "username_required" });
+  const user = q.byUsername.get(username.toLowerCase());
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+
+  const mode = String((req.body && req.body.mode) || "set");
+  const amount = Math.floor(Number(req.body && req.body.tokens));
+  if (!Number.isFinite(amount) || amount < 0) {
+    return res.status(400).json({ error: "tokens_must_be_non_negative_int" });
+  }
+
+  let next;
+  if (mode === "add") {
+    next = creditWallet(user.id, amount);
+  } else if (mode === "set") {
+    next = setWalletAdmin(user.id, amount);
+  } else {
+    return res.status(400).json({ error: "mode_must_be_set_or_add" });
+  }
+
+  const state = persistUserState(user.id, parseUserState(q.byId.get(user.id)));
+  res.json({ ok: true, username: user.username, tokens: next, state });
+});
 
 // Публичная карточка гильдии по коду (для регистрации ребёнка по QR/ссылке).
 app.get("/api/guild/preview", (req, res) => {
@@ -740,17 +1051,32 @@ app.get("/api/guild/qr", async (req, res) => {
   }
 });
 
-// Регистрация ребёнка или тренера.
+// Регистрация по OTP: phoneTicket + роль + имя (+ гильдия / секция). Без логина/пароля.
 app.post("/api/register", authRateLimit, (req, res) => {
-  const { username, password, role, state, guildCode, guildName, sport, consent } = req.body || {};
-  const err = validCreds(username, password);
-  if (err) return res.status(400).json({ error: err });
-  const r = role === "trainer" ? "trainer" : "child";
-  const u = username.trim();
-  if (q.byUsername.get(u.toLowerCase())) return res.status(409).json({ error: "Логин уже занят" });
+  const { role, state, guildCode, guildName, sport, consent, phoneTicket, name } = req.body || {};
+  const ticket = readPhoneTicket(phoneTicket, "register");
+  if (!ticket) {
+    return res.status(400).json({ error: "Подтверди номер телефона кодом из сообщения" });
+  }
+  if (q.byPhone.get(ticket.phone)) {
+    return res.status(409).json({ error: "Этот номер уже зарегистрирован — войди по коду" });
+  }
 
-  const hash = bcrypt.hashSync(password, 10);
-  const clientHeroName = state && state.hero && typeof state.hero.name === "string" ? state.hero.name : "";
+  const r = role === "trainer" ? "trainer" : "child";
+  let u = `u${ticket.phone}`;
+  if (q.byUsername.get(u.toLowerCase())) {
+    u = `u${ticket.phone}_${crypto.randomBytes(2).toString("hex")}`;
+  }
+  // OTP-аккаунт: случайный hash, вход только по телефону.
+  const hash = bcrypt.hashSync(crypto.randomBytes(24).toString("hex"), 10);
+  const clientHeroName =
+    (typeof name === "string" && name.trim())
+    || (state && state.hero && typeof state.hero.name === "string" ? state.hero.name : "")
+    || "";
+  const heroName = clientHeroName.trim().slice(0, r === "child" ? 16 : 24);
+  if (heroName.length < 2) {
+    return res.status(400).json({ error: r === "child" ? "Введи имя героя" : "Введи своё имя" });
+  }
 
   if (r === "trainer") {
     const sportId = typeof sport === "string" ? sport.trim() : "";
@@ -760,21 +1086,23 @@ app.post("/api/register", authRateLimit, (req, res) => {
     const trainerState = freshRegisterState({
       role: "trainer",
       username: u,
-      heroName: clientHeroName,
+      heroName,
       sportId,
       consent: true,
     });
     const stateJson = JSON.stringify(trainerState);
-    const info = q.insertUser.run(u, u.toLowerCase(), hash, "trainer", null, "{}", stateJson);
+    const info = q.insertUser.run(u, u.toLowerCase(), hash, "trainer", null, "{}", stateJson, ticket.phone);
+    q.setPasswordSet.run(0, info.lastInsertRowid);
     const code = genGuildCode();
-    const gname = (typeof guildName === "string" && guildName.trim()) ? guildName.trim().slice(0, 40) : `Гильдия ${u}`;
+    const gname = (typeof guildName === "string" && guildName.trim())
+      ? guildName.trim().slice(0, 40)
+      : `Гильдия ${heroName}`;
     const ginfo = q.insertGuild.run(gname, code, info.lastInsertRowid, sportId);
     q.setGuildId.run(ginfo.lastInsertRowid, info.lastInsertRowid);
     const user = q.byId.get(info.lastInsertRowid);
     return res.json(sessionPayload(user));
   }
 
-  // Ребёнок: обязателен код гильдии.
   if (!consent) return res.status(400).json({ error: "Нужно согласие родителя" });
   if (typeof guildCode !== "string" || !guildCode.trim()) {
     return res.status(400).json({ error: "Введи код гильдии от тренера" });
@@ -787,12 +1115,13 @@ app.post("/api/register", authRateLimit, (req, res) => {
   const childState = freshRegisterState({
     role: "child",
     username: u,
-    heroName: clientHeroName,
+    heroName,
     sportId: guild.sport,
     consent: true,
   });
   const childStateJson = JSON.stringify(childState);
-  const info = q.insertUser.run(u, u.toLowerCase(), hash, "child", guild.id, "{}", childStateJson);
+  const info = q.insertUser.run(u, u.toLowerCase(), hash, "child", guild.id, guild.schedule_json || "{}", childStateJson, ticket.phone);
+  q.setPasswordSet.run(0, info.lastInsertRowid);
   const user = q.byId.get(info.lastInsertRowid);
   notifyGuild(guild.id, "join");
   res.json(sessionPayload(user));
@@ -822,19 +1151,22 @@ app.put("/api/state", auth, (req, res) => {
   if (!state || typeof state !== "object") return res.status(400).json({ error: "no_state" });
   let normalized = state;
   if (req.user.role === "child") {
-    const oldState = safeParseJson(req.user.state_json || "{}", {});
+    const fresh = q.byId.get(req.user.id) || req.user;
+    const oldState = parseUserState(fresh);
     try {
-      normalized = ensureChildState(state, oldState, req.user);
+      normalized = ensureChildState(state, oldState, fresh);
     } catch (e) {
       return res.status(400).json({ error: e.message || "invalid_state" });
     }
+    normalized = persistUserState(req.user.id, normalized);
+  } else {
+    q.saveState.run(JSON.stringify(normalized), req.user.id);
   }
-  q.saveState.run(JSON.stringify(normalized), req.user.id);
   if (req.user.role === "child") {
     try { saveProgressSnapshot(req.user.id, normalized); } catch (e) {}
   }
   if (req.user.role === "child" && req.user.guild_id) notifyGuild(req.user.guild_id, "progress");
-  res.json({ ok: true });
+  res.json({ ok: true, state: normalized });
 });
 
 // Общий рейтинг: реальные игроки и гильдии из базы.
@@ -997,7 +1329,7 @@ app.post("/api/guild/chest/claim", auth, requireRole("child"), (req, res) => {
   if (existing) {
     return res.json({ ok: true, already: true, coins: existing.coins, weekKey });
   }
-  const state = safeParseJson(req.user.state_json || "{}", {});
+  const state = parseUserState(req.user);
   if (!state.hero || typeof state.hero !== "object") state.hero = {};
   const coins = GUILD_CHEST_COINS;
   state.hero.coins = Math.max(0, (Number(state.hero.coins) || 0) + coins);
@@ -1005,7 +1337,7 @@ app.post("/api/guild/chest/claim", auth, requireRole("child"), (req, res) => {
   state.updatedAt = Date.now();
   const tx = db.transaction(() => {
     q.chestClaimInsert.run(req.user.id, req.user.guild_id, weekKey, coins);
-    q.saveState.run(JSON.stringify(state), req.user.id);
+    persistUserState(req.user.id, state);
   });
   try {
     tx();
@@ -1015,20 +1347,25 @@ app.post("/api/guild/chest/claim", auth, requireRole("child"), (req, res) => {
     }
     throw e;
   }
-  try { saveProgressSnapshot(req.user.id, state); } catch (e) {}
-  res.json({ ok: true, coins, weekKey, state });
+  const saved = parseUserState(q.byId.get(req.user.id));
+  try { saveProgressSnapshot(req.user.id, saved); } catch (e) {}
+  res.json({ ok: true, coins, weekKey, state: saved });
 });
 
-// Камерная тренировка: серверная идемпотентная выдача XP (без видео).
+// Камерная тренировка: серверная идемпотентная выдача токенов (без видео).
 app.get("/api/exercise/daily", auth, requireRole("child"), (req, res) => {
   const day = todayInAppTz();
   const used = Number(q.exerciseDayXp.get(req.user.id, day).xp) || 0;
   res.json({
     day,
+    usedTokens: used,
+    remainingTokens: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - used),
+    dailyCap: EXERCISE_DAILY_TOKEN_CAP,
+    tokensPerRep: EXERCISE_TOKENS_PER_REP,
+    // legacy aliases
     usedXp: used,
-    remainingXp: Math.max(0, EXERCISE_DAILY_XP_CAP - used),
-    dailyCap: EXERCISE_DAILY_XP_CAP,
-    xpPerRep: EXERCISE_XP_PER_REP,
+    remainingXp: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - used),
+    xpPerRep: EXERCISE_TOKENS_PER_REP,
   });
 });
 
@@ -1054,7 +1391,8 @@ app.post("/api/exercise/session", auth, requireRole("child"), (req, res) => {
     }
     const day = existing.day;
     const used = Number(q.exerciseDayXp.get(req.user.id, day).xp) || 0;
-    const state = safeParseJson(req.user.state_json || "{}", {});
+    const state = parseUserState(q.byId.get(req.user.id) || req.user);
+    const tokensAwarded = existing.xp_awarded;
     return res.json({
       ok: true,
       already: true,
@@ -1062,32 +1400,33 @@ app.post("/api/exercise/session", auth, requireRole("child"), (req, res) => {
       exerciseType: existing.exercise_type,
       reps: existing.reps,
       acceptedReps: existing.accepted_reps,
-      xpAwarded: existing.xp_awarded,
+      tokensAwarded,
+      xpAwarded: tokensAwarded,
       day,
+      usedTokens: used,
+      remainingTokens: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - used),
       usedXp: used,
-      remainingXp: Math.max(0, EXERCISE_DAILY_XP_CAP - used),
-      dailyCap: EXERCISE_DAILY_XP_CAP,
+      remainingXp: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - used),
+      dailyCap: EXERCISE_DAILY_TOKEN_CAP,
       state,
     });
   }
 
   const day = todayInAppTz();
   const remaining = exerciseDayRemaining(req.user.id, day);
-  const maxByCap = Math.floor(remaining / EXERCISE_XP_PER_REP);
+  const maxByCap = Math.floor(remaining / EXERCISE_TOKENS_PER_REP);
   const acceptedReps = Math.max(0, Math.min(reps, maxByCap));
-  const xpAwarded = acceptedReps * EXERCISE_XP_PER_REP;
+  const tokensAwarded = acceptedReps * EXERCISE_TOKENS_PER_REP;
 
   const fresh = q.byId.get(req.user.id);
-  const state = safeParseJson((fresh && fresh.state_json) || req.user.state_json || "{}", {});
-  if (!state.hero || typeof state.hero !== "object") state.hero = {};
-  let leveled = 0;
-  if (xpAwarded > 0) {
-    leveled = applyXpToHero(state.hero, xpAwarded);
-  }
+  const state = parseUserState(fresh || req.user);
+  ensureHeroLootFields(state.hero);
+  const dayTokens = (Number(q.exerciseDayXp.get(req.user.id, day).xp) || 0) + tokensAwarded;
   if (!state.hero.exercise || typeof state.hero.exercise !== "object") state.hero.exercise = {};
   state.hero.exercise = {
     lastDay: day,
-    dayXp: (Number(q.exerciseDayXp.get(req.user.id, day).xp) || 0) + xpAwarded,
+    dayTokens,
+    dayXp: dayTokens,
     lastType: exerciseType,
     lastReps: acceptedReps,
     lastSessionId: sessionId,
@@ -1095,8 +1434,9 @@ app.post("/api/exercise/session", auth, requireRole("child"), (req, res) => {
   state.updatedAt = Date.now();
 
   const tx = db.transaction(() => {
-    q.exerciseInsert.run(sessionId, req.user.id, day, exerciseType, reps, acceptedReps, xpAwarded);
-    q.saveState.run(JSON.stringify(state), req.user.id);
+    q.exerciseInsert.run(sessionId, req.user.id, day, exerciseType, reps, acceptedReps, tokensAwarded);
+    if (tokensAwarded > 0) creditWallet(req.user.id, tokensAwarded);
+    persistUserState(req.user.id, state);
   });
   try {
     tx();
@@ -1104,6 +1444,7 @@ app.post("/api/exercise/session", auth, requireRole("child"), (req, res) => {
     if (String(e && e.message || "").includes("UNIQUE")) {
       const row = q.exerciseBySession.get(sessionId);
       const used = Number(q.exerciseDayXp.get(req.user.id, row ? row.day : day).xp) || 0;
+      const awarded = row ? row.xp_awarded : tokensAwarded;
       return res.json({
         ok: true,
         already: true,
@@ -1111,19 +1452,23 @@ app.post("/api/exercise/session", auth, requireRole("child"), (req, res) => {
         exerciseType: row ? row.exercise_type : exerciseType,
         reps: row ? row.reps : reps,
         acceptedReps: row ? row.accepted_reps : acceptedReps,
-        xpAwarded: row ? row.xp_awarded : xpAwarded,
+        tokensAwarded: awarded,
+        xpAwarded: awarded,
         day: row ? row.day : day,
+        usedTokens: used,
+        remainingTokens: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - used),
         usedXp: used,
-        remainingXp: Math.max(0, EXERCISE_DAILY_XP_CAP - used),
-        dailyCap: EXERCISE_DAILY_XP_CAP,
-        state: safeParseJson(q.byId.get(req.user.id).state_json || "{}", {}),
+        remainingXp: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - used),
+        dailyCap: EXERCISE_DAILY_TOKEN_CAP,
+        state: parseUserState(q.byId.get(req.user.id)),
       });
     }
     throw e;
   }
 
-  try { saveProgressSnapshot(req.user.id, state); } catch (e) {}
-  const usedXp = Number(q.exerciseDayXp.get(req.user.id, day).xp) || 0;
+  try { saveProgressSnapshot(req.user.id, parseUserState(q.byId.get(req.user.id))); } catch (e) {}
+  const usedTokens = Number(q.exerciseDayXp.get(req.user.id, day).xp) || 0;
+  const saved = parseUserState(q.byId.get(req.user.id));
   res.json({
     ok: true,
     already: false,
@@ -1131,13 +1476,83 @@ app.post("/api/exercise/session", auth, requireRole("child"), (req, res) => {
     exerciseType,
     reps,
     acceptedReps,
-    xpAwarded,
-    leveled,
+    tokensAwarded,
+    xpAwarded: tokensAwarded,
+    leveled: 0,
     day,
-    usedXp,
-    remainingXp: Math.max(0, EXERCISE_DAILY_XP_CAP - usedXp),
-    dailyCap: EXERCISE_DAILY_XP_CAP,
-    state,
+    usedTokens,
+    remainingTokens: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - usedTokens),
+    usedXp: usedTokens,
+    remainingXp: Math.max(0, EXERCISE_DAILY_TOKEN_CAP - usedTokens),
+    dailyCap: EXERCISE_DAILY_TOKEN_CAP,
+    state: saved,
+  });
+});
+
+// Открыть бокс навыков за токены.
+app.post("/api/boxes/open", auth, requireRole("child"), (req, res) => {
+  const fresh = q.byId.get(req.user.id);
+  const state = parseUserState(fresh || req.user);
+  ensureHeroLootFields(state.hero);
+
+  const tokens = walletOf(fresh || req.user);
+  if (tokens < SKILL_BOX_COST) {
+    return res.status(400).json({
+      error: `Нужно ${SKILL_BOX_COST} токенов`,
+      tokens,
+      cost: SKILL_BOX_COST,
+    });
+  }
+
+  const skills = boxSkills(state.hero.sport);
+  const roll = rollSkillBox({ skills, ownedSkills: state.hero.ownedSkills });
+  // Списание токенов за открытие кейса (возврат при дубликате).
+  // PUT /state кошелёк не трогает — только этот эндпоинт и /api/admin/wallet.
+  const netSpend = Math.max(0, SKILL_BOX_COST - (roll.tokensRefund || 0));
+  if (roll.skillId && !roll.duplicate) {
+    const owned = new Set(state.hero.ownedSkills);
+    owned.add(roll.skillId);
+    state.hero.ownedSkills = [...owned];
+  }
+  state.updatedAt = Date.now();
+
+  const boxTx = db.transaction(() => {
+    if (netSpend > 0) {
+      const left = debitWallet(req.user.id, netSpend);
+      if (left == null) throw new Error("insufficient_tokens");
+    } else if ((roll.tokensRefund || 0) > SKILL_BOX_COST) {
+      creditWallet(req.user.id, (roll.tokensRefund || 0) - SKILL_BOX_COST);
+    }
+    persistUserState(req.user.id, state);
+  });
+  try {
+    boxTx();
+  } catch (e) {
+    if (String(e && e.message) === "insufficient_tokens") {
+      return res.status(400).json({
+        error: `Нужно ${SKILL_BOX_COST} токенов`,
+        tokens: walletOf(q.byId.get(req.user.id)),
+        cost: SKILL_BOX_COST,
+      });
+    }
+    throw e;
+  }
+
+  const boxSaved = parseUserState(q.byId.get(req.user.id));
+  const rarityMeta = SKILL_RARITIES[roll.rarity] || SKILL_RARITIES.common;
+  res.json({
+    ok: true,
+    cost: SKILL_BOX_COST,
+    tokens: boxSaved.hero.tokens,
+    rarity: roll.rarity,
+    rarityName: rarityMeta.name,
+    rarityColor: rarityMeta.color,
+    skillId: roll.skillId,
+    skillName: roll.skill ? roll.skill.name : null,
+    duplicate: !!roll.duplicate,
+    tokensRefund: roll.tokensRefund || 0,
+    ownedSkills: boxSaved.hero.ownedSkills,
+    state: boxSaved,
   });
 });
 
@@ -1160,7 +1575,7 @@ app.get("/api/progress/summary", auth, requireRole("child"), (req, res) => {
   const lastSnap = snapshots.length ? snapshots[snapshots.length - 1] : null;
   const levelStart = firstSnap ? firstSnap.level : (hero.level || 1);
   const levelEnd = lastSnap ? lastSnap.level : (hero.level || 1);
-  const scheduleDays = scheduledPerWeek(req.user.schedule_json);
+  const scheduleDays = scheduledPerWeek(scheduleJsonOfUser(req.user));
   const days = datesBetween(from, to).map((day) => {
     const att = attendance.find((a) => a.date === day);
     const dayBattles = battles.filter((b) => b.date === day);
@@ -1237,6 +1652,35 @@ app.post("/api/push/unsubscribe", auth, (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/push/test", auth, requireRole("child"), async (req, res) => {
+  if (!webpush) return res.status(503).json({ error: "push_not_configured" });
+  const rows = q.pushByUser.all(req.user.id);
+  if (!rows.length) return res.status(400).json({ error: "no_subscription" });
+  const payload = JSON.stringify({
+    title: "LevelUp",
+    body: "Тестовое уведомление — пуши работают!",
+    url: "/profile",
+  });
+  let ok = 0;
+  let lastErr = null;
+  for (const row of rows) {
+    try {
+      await webpush.sendNotification(
+        { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
+        payload
+      );
+      ok += 1;
+    } catch (err) {
+      lastErr = err && (err.body || err.message || String(err.statusCode || err));
+      if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+        try { q.pushDisable.run(req.user.id, row.endpoint); } catch (e) {}
+      }
+    }
+  }
+  if (!ok) return res.status(502).json({ error: "push_failed", detail: String(lastErr || "") });
+  res.json({ ok: true, sent: ok });
+});
+
 function sendPushToUser(userId, payload, type, day) {
   if (!webpush) return 0;
   if (q.notifLogged.get(userId, type, day)) return 0;
@@ -1303,7 +1747,7 @@ function runPushSchedulerTick() {
     const now = new Date();
     const local = localPartsInTz(now, tz);
     const day = local.day;
-    const schedule = safeParseJson(user.schedule_json || "{}", {});
+    const schedule = scheduleOfUser(user);
     // day-of-week in local tz
     const localDate = new Date(`${day}T12:00:00`);
     const dow = String(localDate.getDay());
@@ -1392,7 +1836,7 @@ app.get("/api/guild/members", auth, requireRole("trainer"), (req, res) => {
   const members = q.childrenOfGuild.all(guild.id).map((u) => {
     const c = childSummary(u);
     c.weekTrainings = weekMap[u.id] || 0;
-    c.weekTarget = scheduledPerWeek(u.schedule_json);
+    c.weekTarget = scheduledPerWeek(scheduleJsonOfUser(u));
     return c;
   });
   res.json({ members, weekly: guildWeekly(guild.id) });
@@ -1435,7 +1879,7 @@ app.post("/api/attendance/:id/leave-decision", auth, requireRole("trainer"), (re
   res.json({ attendance: q.attById.get(att.id) });
 });
 
-// Задать расписание конкретному ребёнку.
+// Задать расписание гильдии (одно на всех детей).
 app.put("/api/guild/member/:childId/schedule", auth, requireRole("trainer"), (req, res) => {
   const guild = q.guildByTrainer.get(req.user.id);
   const child = q.byId.get(Number(req.params.childId));
@@ -1444,8 +1888,9 @@ app.put("/api/guild/member/:childId/schedule", auth, requireRole("trainer"), (re
   }
   const schedule = (req.body && req.body.schedule) || {};
   if (typeof schedule !== "object") return res.status(400).json({ error: "bad_schedule" });
-  q.setSchedule.run(JSON.stringify(schedule), child.id);
-  res.json({ ok: true });
+  applyGuildSchedule(guild.id, schedule);
+  notifyGuild(guild.id, "schedule");
+  res.json({ ok: true, schedule });
 });
 
 app.put("/api/guild/schedule", auth, requireRole("trainer"), (req, res) => {
@@ -1453,8 +1898,9 @@ app.put("/api/guild/schedule", auth, requireRole("trainer"), (req, res) => {
   if (!guild) return res.status(404).json({ error: "not_found" });
   const schedule = (req.body && req.body.schedule) || {};
   if (typeof schedule !== "object") return res.status(400).json({ error: "bad_schedule" });
-  q.setScheduleByGuild.run(JSON.stringify(schedule), guild.id);
-  res.json({ ok: true });
+  applyGuildSchedule(guild.id, schedule);
+  notifyGuild(guild.id, "schedule");
+  res.json({ ok: true, schedule });
 });
 
 app.delete("/api/guild/member/:childId", auth, requireRole("trainer"), (req, res) => {
@@ -1477,7 +1923,11 @@ app.post("/api/guild/member/:childId/transfer", auth, requireRole("trainer"), (r
     return res.status(404).json({ error: "not_found" });
   }
   if (!target) return res.status(404).json({ error: "Гильдия не найдена" });
-  db.prepare("UPDATE users SET guild_id = ? WHERE id = ?").run(target.id, child.id);
+  db.prepare("UPDATE users SET guild_id = ?, schedule_json = ? WHERE id = ?").run(
+    target.id,
+    target.schedule_json || "{}",
+    child.id
+  );
   notifyGuild(guild.id, "member_transfer");
   notifyGuild(target.id, "member_transfer");
   res.json({ ok: true });
@@ -1486,14 +1936,64 @@ app.post("/api/guild/member/:childId/transfer", auth, requireRole("trainer"), (r
 app.post("/api/account/password", auth, (req, res) => {
   const oldPassword = String(req.body && req.body.oldPassword || "");
   const newPassword = String(req.body && req.body.newPassword || "");
+  if (!Number(req.user.password_set)) {
+    return res.status(400).json({ error: "Пароль не задан — войди по коду на телефон" });
+  }
   if (!bcrypt.compareSync(oldPassword, req.user.password_hash)) {
     return res.status(401).json({ error: "Неверный текущий пароль" });
   }
   const err = validCreds(req.user.username, newPassword);
   if (err) return res.status(400).json({ error: err });
   q.setPassword.run(bcrypt.hashSync(newPassword, 10), req.user.id);
-  q.bumpTokenRev.run(req.user.id);
-  res.json({ ok: true });
+  const user = q.byId.get(req.user.id);
+  res.json({ ok: true, ...sessionPayload(user) });
+});
+
+// Привязка телефона к аккаунту (WhatsApp OTP).
+app.post("/api/account/phone/send", auth, authRateLimit, async (req, res) => {
+  if (req.user.phone) {
+    return res.status(400).json({ success: false, message: "Телефон уже привязан" });
+  }
+  const phone = normalizePhone(req.body && req.body.phone);
+  if (!phoneLooksValid(phone)) {
+    return res.status(422).json({ success: false, message: "Неверный формат номера телефона" });
+  }
+  const taken = q.byPhone.get(phone);
+  if (taken) {
+    return res.status(422).json({ success: false, message: "Этот номер уже занят" });
+  }
+  try {
+    const result = await sendOtp(phone, { purpose: "bind" });
+    return res.status(otpHttpStatus(result)).json(publicOtpResult(result));
+  } catch {
+    return res.status(502).json({ success: false, message: "Не удалось отправить код" });
+  }
+});
+
+app.post("/api/account/phone/confirm", auth, authRateLimit, async (req, res) => {
+  if (req.user.phone) {
+    return res.status(400).json({ success: false, message: "Телефон уже привязан" });
+  }
+  const phone = normalizePhone(req.body && req.body.phone);
+  const code = String((req.body && req.body.code) || "");
+  if (!phoneLooksValid(phone)) {
+    return res.status(422).json({ success: false, message: "Неверный формат номера телефона" });
+  }
+  try {
+    const result = await verifyOtp(phone, code, "bind");
+    if (!(result && result.success)) {
+      return res.status(otpHttpStatus(result)).json(publicOtpResult(result));
+    }
+    const taken = q.byPhone.get(phone);
+    if (taken) {
+      return res.status(422).json({ success: false, message: "Этот номер уже занят" });
+    }
+    q.setPhone.run(phone, req.user.id);
+    const user = q.byId.get(req.user.id);
+    return res.json({ success: true, message: "Телефон привязан", ...sessionPayload(user) });
+  } catch {
+    return res.status(502).json({ success: false, message: "Не удалось проверить код" });
+  }
 });
 
 app.post("/api/account/logout-all", auth, (req, res) => {

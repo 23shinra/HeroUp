@@ -1,0 +1,1 @@
+import{u as e,b as s,r as a,j as r,N as o}from"./index-tB7sG6ty.js";function n(){e(),s(t=>t.S),s(t=>t.setS),s(t=>t.toastMsg);const[u,l]=a.useState(null);return r.jsx(o,{to:"/skills",replace:!0})}export{n as default};

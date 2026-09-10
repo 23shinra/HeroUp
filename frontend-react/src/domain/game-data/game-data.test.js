@@ -7,7 +7,7 @@ describe("game-data", () => {
     expect(GAME.stats).toHaveLength(5);
     expect(GAME.classes).toHaveLength(5);
     expect(GAME.botNames.length).toBeGreaterThan(0);
-    expect(GAME.sportSkills.wrestling).toHaveLength(5);
+    expect(GAME.sportSkills.wrestling).toHaveLength(17);
   });
 
   it("xpToNext follows production formula", () => {

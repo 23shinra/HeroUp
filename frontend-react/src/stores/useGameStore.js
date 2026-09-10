@@ -23,6 +23,12 @@ function loadBattleFromSession() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.phase || parsed.phase === "intro") return null;
+    // Finished fight (rewards already applied): drop session so reload opens the battle hub,
+    // not a stuck arena with a dead "В бой!" button.
+    if (parsed.state?.rewards || parsed.phase === "result") {
+      sessionStorage.removeItem(BATTLE_STORAGE_KEY);
+      return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -68,6 +74,7 @@ function stateSyncScore(st) {
     + stages * 500
     + (Number(h.trophies) || 0) * 10
     + (Number(h.coins) || 0)
+    + (Number(h.tokens) || 0)
     + (Number(h.seasonPoints) || 0) * 5
     + statSum * 50
     + spentStatPoints * 80
@@ -110,8 +117,14 @@ export const useGameStore = create((set, get) => ({
 
   setS: (updater) => {
     const prev = get().S;
-    const next = typeof updater === "function" ? updater(prev) : updater;
+    let next = typeof updater === "function" ? updater(prev) : updater;
     if (!next || typeof next !== "object") return prev;
+    // Клиент не может сам уменьшить токены — только сервер/админ через applyServerState.
+    const prevTokens = Math.max(0, Math.floor(Number(prev?.hero?.tokens) || 0));
+    const nextTokens = Math.max(0, Math.floor(Number(next?.hero?.tokens) || 0));
+    if (next.hero && nextTokens < prevTokens) {
+      next = { ...next, hero: { ...next.hero, tokens: prevTokens } };
+    }
     saveState(next);
     set({ S: next });
     get().persistDebounced();
@@ -209,10 +222,15 @@ export const useGameStore = create((set, get) => ({
     S.auth = S.auth || {};
     S.auth.loggedIn = true;
     S.auth.username = username;
+    S.auth.phone = d.phone || S.auth.phone || "";
+    S.auth.passwordSet = d.passwordSet !== undefined ? !!d.passwordSet : !!S.auth.passwordSet;
     S.role = d.role || "child";
     S.guild = d.guild || S.guild || null;
     if (S.role === "child") {
-      if (d.schedule) S.hero.schedule = d.schedule;
+      S.hero = S.hero || {};
+      // Серверное расписание гильдии — источник истины (не локальный кеш).
+      const sched = d.schedule || d.state?.hero?.schedule;
+      if (sched && typeof sched === "object") S.hero.schedule = sched;
       S.created = !!(S.hero && S.hero.name);
     } else {
       S.created = true;
@@ -272,6 +290,10 @@ export const useGameStore = create((set, get) => ({
   applyServerState: (remoteState) => {
     if (!remoteState || typeof remoteState !== "object") return get().S;
     const local = get().S;
+    const remoteTokens = remoteState.hero && "tokens" in remoteState.hero
+      ? Math.max(0, Math.floor(Number(remoteState.hero.tokens) || 0))
+      : null;
+    const localTokens = Math.max(0, Math.floor(Number(local.hero?.tokens) || 0));
     const hydrated = hydrateState({
       ...local,
       ...remoteState,
@@ -279,6 +301,10 @@ export const useGameStore = create((set, get) => ({
       stats: { ...(local.stats || {}), ...(remoteState.stats || {}) },
       auth: { ...(local.auth || {}), ...(remoteState.auth || {}) },
     });
+    // Сервер — источник истины, но локально не даём случайно просесть ниже известного баланса
+    // (кроме явного ответа сервера, который уже учтён в remoteTokens).
+    if (remoteTokens != null) hydrated.hero.tokens = remoteTokens;
+    else hydrated.hero.tokens = Math.max(localTokens, Math.max(0, Math.floor(Number(hydrated.hero.tokens) || 0)));
     saveState(hydrated);
     set({ S: hydrated });
     return hydrated;
@@ -286,6 +312,15 @@ export const useGameStore = create((set, get) => ({
 
   completeExerciseSession: async ({ sessionId, exerciseType, reps }) => {
     const result = await SHApi.completeExerciseSessionQueued({ sessionId, exerciseType, reps });
+    if (result?.state) {
+      get().applyServerState(result.state);
+      get().persistDebounced();
+    }
+    return result;
+  },
+
+  openSkillBox: async () => {
+    const result = await SHApi.openSkillBox();
     if (result?.state) {
       get().applyServerState(result.state);
       get().persistDebounced();
@@ -326,15 +361,21 @@ export const useGameStore = create((set, get) => ({
         const remote = hydrateState(d.state || {});
         remote.auth = remote.auth || {};
         remote.auth.username = d.username || remote.auth.username || "";
+        remote.auth.phone = d.phone || remote.auth.phone || "";
+        remote.auth.passwordSet = d.passwordSet !== undefined ? !!d.passwordSet : !!remote.auth.passwordSet;
         const localReady = localStateOwnsAccount(local, d.username) ? local : null;
         const chosen = pickNewerState(localReady, remote);
         S = hydrateState(chosen || remote);
         S.auth.loggedIn = true;
         S.auth.username = d.username || S.auth.username || "";
+        S.auth.phone = d.phone || S.auth.phone || "";
+        S.auth.passwordSet = d.passwordSet !== undefined ? !!d.passwordSet : !!S.auth.passwordSet;
         S.role = d.role || S.role || "child";
         S.guild = d.guild || S.guild || null;
         if (S.role === "child") {
-          if (d.schedule) S.hero.schedule = d.schedule;
+          S.hero = S.hero || {};
+          const sched = d.schedule || d.state?.hero?.schedule;
+          if (sched && typeof sched === "object") S.hero.schedule = sched;
           S.created = !!(S.hero && S.hero.name);
         } else {
           S.created = true;

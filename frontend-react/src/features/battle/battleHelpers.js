@@ -28,6 +28,14 @@ export function resolveOppSportId(opp) {
   return null;
 }
 
+/** Уникальный спрайт этапа/карты — нельзя подменять sport attack sheets. */
+export function hasCustomBattleSprite(opp) {
+  if (!opp) return false;
+  if (opp.stage != null || opp.mapMode) return true;
+  const src = String(opp.sprite || "");
+  return src.includes("/stages/") || src.includes("stages/");
+}
+
 export function equippedFxMeta(hero) {
   const eq = hero?.cosmetics?.equipped;
   return eq?.fx ? GAME.shop.find((i) => i.id === eq.fx) : null;

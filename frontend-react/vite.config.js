@@ -20,8 +20,10 @@ export default defineConfig({
       "@domain/attendance": path.resolve(rootDir, "src/domain/attendance/index.js"),
       "@domain/reminders": path.resolve(rootDir, "src/domain/reminders/index.js"),
       "@domain/exercise": path.resolve(rootDir, "src/domain/exercise/index.js"),
+      "@domain/loot": path.resolve(rootDir, "src/domain/loot/index.js"),
     },
-  },  plugins: [
+  },
+  plugins: [
     react(),
     ...(enablePwa
       ? [
@@ -56,6 +58,7 @@ export default defineConfig({
               ],
             },
             workbox: {
+              importScripts: ["push-sw.js"],
               navigateFallback: "/index.html",
               globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,jpg,jpeg}"],
               // Pose model + WASM are large; cache on demand rather than bloating first install.

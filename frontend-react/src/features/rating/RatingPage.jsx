@@ -166,6 +166,7 @@ export default function RatingPage() {
   );
 
   const myIdx = players.findIndex((p) => p.me);
+  const showMySticky = myIdx >= 50;
   const openPlayer = (p) => { setGuild(null); setPlayer(p); };
   const openGuild = (g) => { setPlayer(null); setGuild(g); };
 
@@ -233,7 +234,7 @@ export default function RatingPage() {
                   <PlayerRow key={p.id || i} player={p} index={i + 3} onSelect={openPlayer} />
                 ))}
               </div>
-              {myIdx >= 6 && (
+              {showMySticky && (
                 <div className="rating-me">
                   <div className="rating-me__label">Твоё место — {myIdx + 1} из {players.length}</div>
                   <PlayerRow player={players[myIdx]} index={myIdx} onSelect={openPlayer} />

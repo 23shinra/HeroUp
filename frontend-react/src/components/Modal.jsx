@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon.jsx";
 
-export function Modal({ open, onClose, title, children, sheetClass = "" }) {
+export function Modal({ open, onClose, title, children, sheetClass = "", modalClass = "" }) {
   const sheetRef = useRef(null);
 
   useEffect(() => {
@@ -23,7 +23,7 @@ export function Modal({ open, onClose, title, children, sheetClass = "" }) {
   if (!open) return null;
 
   return createPortal(
-    <div className="modal" role="dialog" aria-modal="true">
+    <div className={`modal ${modalClass}`.trim()} role="dialog" aria-modal="true">
       <div className="modal__backdrop" onClick={onClose} aria-hidden="true" />
       <div className={`modal__sheet ${sheetClass}`.trim()} tabIndex={-1} ref={sheetRef}>
         {(title || onClose) && (

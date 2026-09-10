@@ -29,6 +29,7 @@ export const ICONS = {
   wifi: '<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/>',
   wifiOff: '<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.52"/><path d="M2 8.82a15 15 0 0 1 4.177-2.318"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
   mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.7 2.35a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.75.34 1.54.57 2.35.7A2 2 0 0 1 22 16.92z"/>',
   rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
 
   // Характеристики
@@ -39,9 +40,9 @@ export const ICONS = {
   team: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
 
   // Спорт / бойцы
-  boxing: '<path d="M7 14V9a3 3 0 0 1 3-3h3a4 4 0 0 1 4 4v2a3 3 0 0 1-3 3z"/><path d="M7 11H5a2 2 0 0 0 0 4h2"/><path d="M8 17h8v1a3 3 0 0 1-3 3h-2a3 3 0 0 1-3-3z"/>',
-  wrestling: '<circle cx="12" cy="4" r="2"/><path d="M12 6v6"/><path d="M6 9c2 2 4 3 6 3s4-1 6-3"/><path d="m12 12-4 9"/><path d="m12 12 4 9"/>',
-  robotics: '<rect x="7" y="8" width="10" height="9" rx="2"/><circle cx="10" cy="12" r="1.2"/><circle cx="14" cy="12" r="1.2"/><path d="M9 17v3"/><path d="M15 17v3"/><path d="M4 11h3"/><path d="M17 11h3"/><path d="M12 5v3"/><circle cx="12" cy="4" r="1.5"/>',
+  boxing: '<path d="M8 14V9a4 4 0 0 1 4-4h1.5A4.5 4.5 0 0 1 18 9.5V12a4 4 0 0 1-4 4H8Z" fill="currentColor" opacity=".14"/><path d="M8 14V9a4 4 0 0 1 4-4h1.5A4.5 4.5 0 0 1 18 9.5V12a4 4 0 0 1-4 4H8Z"/><path d="M8 10.5H6.5a2.5 2.5 0 0 0 0 5H8"/><path d="M8.5 16h8v2a3 3 0 0 1-3 3h-2a3 3 0 0 1-3-3Z"/><path d="M9 18h7"/>',
+  wrestling: '<circle cx="7" cy="5.5" r="2.2" fill="currentColor" opacity=".14"/><circle cx="17" cy="5.5" r="2.2" fill="currentColor" opacity=".14"/><circle cx="7" cy="5.5" r="2.2"/><circle cx="17" cy="5.5" r="2.2"/><path d="M5 9c2.2-1.6 4.1-1.1 5.7.7L13 12"/><path d="M19 9c-2.2-1.6-4.1-1.1-5.7.7L11 12"/><path d="m8.5 10.8-2 4.2-3 4"/><path d="m15.5 10.8 2 4.2 3 4"/><path d="m6.5 15 4.5 1 2.5 5"/><path d="m17.5 15-4.5 1-2.5 5"/>',
+  robotics: '<path d="M13 4.5V8h-2a2 2 0 0 0-2 2v2.5l-3.8 3.8a2.4 2.4 0 0 0 0 3.4l.1.1a2.4 2.4 0 0 0 3.4 0l4.3-4.3h3a2 2 0 0 0 2-2V9" fill="currentColor" opacity=".14"/><path d="M13 4.5V8h-2a2 2 0 0 0-2 2v2.5l-3.8 3.8a2.4 2.4 0 0 0 0 3.4l.1.1a2.4 2.4 0 0 0 3.4 0l4.3-4.3h3a2 2 0 0 0 2-2V9"/><path d="M13 4.5A1.5 1.5 0 0 1 14.5 3H18a3 3 0 0 1 3 3v1a2 2 0 0 1-2 2h-6Z"/><path d="M9 12.5h4l2.5 3"/><circle cx="7" cy="18" r="1"/><path d="M16 6h1M19 6h2"/>',
   boxer: '<circle cx="9" cy="4" r="2"/><path d="M9 6v6"/><path d="m9 12-3 9"/><path d="m9 12 3 9"/><path d="M9 9l5-1.5"/><circle cx="16.5" cy="7" r="2.2"/>',
   wrestler: '<circle cx="12" cy="4" r="2"/><path d="M12 6v6"/><path d="M5 10c2.5 2 4.5 3 7 3s4.5-1 7-3"/><path d="m12 12-4 9"/><path d="m12 12 4 9"/>',
   roboticist: '<circle cx="12" cy="4" r="2"/><path d="M12 6v5"/><path d="m9 11-3 9"/><path d="m15 11 3 9"/><rect x="8" y="9" width="8" height="6" rx="1.5"/><path d="M6 11h2"/><path d="M16 11h2"/>',

@@ -13,9 +13,15 @@ export const EXERCISE_TYPES = {
   },
 };
 
-export const EXERCISE_XP_PER_REP = 2;
-export const EXERCISE_DAILY_XP_CAP = 60;
+/** Токены за повтор камерной тренировки (вместо XP). */
+export const EXERCISE_TOKENS_PER_REP = 1;
+export const EXERCISE_DAILY_TOKEN_CAP = 30;
 export const EXERCISE_MAX_REPS = 50;
+
+/** @deprecated use EXERCISE_TOKENS_PER_REP */
+export const EXERCISE_XP_PER_REP = EXERCISE_TOKENS_PER_REP;
+/** @deprecated use EXERCISE_DAILY_TOKEN_CAP */
+export const EXERCISE_DAILY_XP_CAP = EXERCISE_DAILY_TOKEN_CAP;
 
 export function isExerciseType(type) {
   return Boolean(EXERCISE_TYPES[type]);
@@ -26,21 +32,31 @@ export function newExerciseSessionId() {
   return `ex_${Date.now().toString(36)}_${rand}`;
 }
 
-/** Предварительный расчёт награды на клиенте (сервер — источник истины). */
-export function computeExerciseXp(reps, { usedXpToday = 0 } = {}) {
+/** Предварительный расчёт токенов на клиенте (сервер — источник истины). */
+export function computeExerciseTokens(reps, { usedTokensToday = 0 } = {}) {
   const safeReps = Math.max(0, Math.min(EXERCISE_MAX_REPS, Math.floor(Number(reps) || 0)));
-  const remaining = Math.max(0, EXERCISE_DAILY_XP_CAP - Math.max(0, Number(usedXpToday) || 0));
-  const maxByCap = Math.floor(remaining / EXERCISE_XP_PER_REP);
+  const remaining = Math.max(0, EXERCISE_DAILY_TOKEN_CAP - Math.max(0, Number(usedTokensToday) || 0));
+  const maxByCap = Math.floor(remaining / EXERCISE_TOKENS_PER_REP);
   const acceptedReps = Math.min(safeReps, maxByCap);
-  const xp = acceptedReps * EXERCISE_XP_PER_REP;
+  const tokens = acceptedReps * EXERCISE_TOKENS_PER_REP;
   return {
     reps: safeReps,
     acceptedReps,
-    xp,
-    remainingAfter: Math.max(0, remaining - xp),
+    tokens,
+    remainingAfter: Math.max(0, remaining - tokens),
     capped: acceptedReps < safeReps,
-    dailyCap: EXERCISE_DAILY_XP_CAP,
-    xpPerRep: EXERCISE_XP_PER_REP,
+    dailyCap: EXERCISE_DAILY_TOKEN_CAP,
+    tokensPerRep: EXERCISE_TOKENS_PER_REP,
+  };
+}
+
+/** @deprecated use computeExerciseTokens */
+export function computeExerciseXp(reps, { usedXpToday = 0, usedTokensToday } = {}) {
+  const r = computeExerciseTokens(reps, { usedTokensToday: usedTokensToday ?? usedXpToday });
+  return {
+    ...r,
+    xp: r.tokens,
+    xpPerRep: r.tokensPerRep,
   };
 }
 
